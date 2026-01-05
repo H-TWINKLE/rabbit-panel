@@ -29,5 +29,5 @@ build-errors.log
 
 # Air 热重载工具
 .air.toml.bak
-
+.kiro/
 compose_projects

@@ -21,12 +21,12 @@
 
 ## 预览
 
-![容器管理](images/image1.png)
-![容器配置](images/image2.png)
-![文件管理](images/image3.png)
-![Compose管理](images/image4.png)
-
-
+![首页](images/image.png)
+![容器管理](images/image-1.png)
+![镜像管理](images/image-2.png)
+![Compose 管理](images/image-3.png)
+![网络管理](images/image-4.png)
+![docker 配置](images/image-5.png)
 ## 环境要求
 
 - Docker 20.10+（已安装并运行，建议将用户加入 `docker` 组）
