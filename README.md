@@ -5,21 +5,26 @@
 ## 特性
 
 - 🚀 **极致轻量**：运行时内存 ≤ 30MB，二进制 ≤ 10MB
-- 🐳 **容器管理**：启动/停止/重启/删除，实时日志（SSE）
-- 📦 **镜像管理**：查看与删除镜像
+- 🐳 **容器管理**：启动/停止/重启/删除，实时日志（SSE），终端访问，文件管理
+- 📦 **镜像管理**：查看、删除、构建镜像
+- 🌐 **网络管理**：创建/删除网络，查看网络详情和连接的容器
+- � **系存储卷管理**：创建/删除存储卷，批量清理未使用卷
+- � **仓库管理**：：管理 Docker 镜像仓库，支持测试连接
+- ⚙️ **Docker 配置**：在线管理 Docker 守护进程配置（镜像加速器、私有仓库、日志配置等）
 - 🧩 **Compose 管理**：在线创建/编辑 `docker-compose.yml`，一键 Up/Down/Restart/Pull/Logs
-- 📊 **系统监控**：CPU/内存/磁盘实时监控（5 秒刷新）
+- � ***系统监控**：CPU/内存/磁盘实时监控（5 秒刷新）
 - 🌐 **响应式设计**：PC/平板/手机良好体验
 - 🔧 **零依赖**：单二进制，内置前端，无数据库，无额外安装
 - 🎯 **多节点管理**：Master/Worker 统一管理多台服务器
 - 🔒 **安全认证**：JWT 登录认证 + HMAC 节点认证
+- 🌍 **国际化**：支持中文/英文切换
 
 ## 预览
 
-![容器管理](image/image1.png)
-![容器配置](image/image2.png)
-![文件管理](image/image3.png)
-![Compose管理](image/image4.png)
+![容器管理](images/image1.png)
+![容器配置](images/image2.png)
+![文件管理](images/image3.png)
+![Compose管理](images/image4.png)
 
 
 ## 环境要求
@@ -134,30 +139,16 @@ HOST=0.0.0.0 PORT=9999 ./rabbit-panel-linux-arm64
 
 > 注意：首次登录必须修改密码。默认监听 `0.0.0.0:9999`，可外网访问。
 
-## 功能说明
-
-### 容器管理
-
-- **列表展示**: 显示容器 ID、名称、镜像、状态、端口映射、内存占用、创建时间
-- **操作功能**: 启动、停止、重启、删除、查看日志（实时流式输出）
-- **自动刷新**: 容器列表每 5 秒自动刷新
-
-### 镜像管理
-
-- **列表展示**: 显示镜像 ID、名称、标签、大小、创建时间
-- **操作功能**: 删除镜像（如果被容器使用会提示先删除容器）
-
-### 系统监控
-
-- **实时监控**: CPU 使用率、内存使用率、磁盘使用率
-- **自动刷新**: 每 5 秒自动刷新
-- **时间显示**: 显示服务器当前时间
 
 ## 多节点管理
 
 Rabbit Panel 支持多节点容器管理，类似 Kubernetes 但更轻量化。
 
 ### Docker 部署（推荐）
+
+请修改 compose 文件里面的 `JWT_SECRET` 和 `NODE_SECRET`
+
+> ⚠️ Master 和 Worker 的 `JWT_SECRET` 和 `NODE_SECRET` 必须相同
 
 **Master 节点：**
 ```bash
@@ -175,7 +166,6 @@ docker compose -f docker-compose.master.yml up -d
 docker compose -f docker-compose.worker.yml up -d
 ```
 
-> ⚠️ Master 和 Worker 的 `JWT_SECRET` 和 `NODE_SECRET` 必须相同
 
 ### 二进制部署
 
@@ -200,17 +190,9 @@ PORT=10001 \
 - ✅ **节点监控**: 实时监控所有节点的资源使用情况
 - ✅ **跨节点操作**: 在 Master 节点操作任意 Worker 节点的容器
 
-详细文档请参考：多节点管理将在后续版本完善。
+### 注意事项
 
-## Compose 管理（在线）
-
-- 在前端“Compose 管理”页新建项目（存储于 `compose_projects/<name>/docker-compose.yml`）
-- 支持在线编辑（深色编辑器、Tab 插入空格），保存文件
-- 支持执行：`up -d`、`down`、`restart`、`pull`、`logs`，输出结果在面板展示
-- 切换到 Compose 标签页会自动刷新项目列表
-
-> 需要本机已安装 `docker compose`（你已安装：`docker compose version` 返回成功）。
-
+> ⚠️ **时间同步要求**：Master 和 Worker 节点之间的系统时间差不能超过 1 小时，否则节点认证会失败。
 
 ## 配置与安全
 
@@ -247,32 +229,74 @@ Master 和 Worker 节点之间的通信使用 HMAC-SHA256 认证机制。
 NODE_SECRET=your-secret-key-here ./rabbit-panel-linux-arm64
 ```
 
+
 ## 项目结构
 
 ```
 rabbit-panel/
-├── main.go              # 后端主文件
-├── auth.go              # 认证模块
-├── node.go              # 节点管理模块
-├── scheduler.go         # 容器调度模块
-├── compose.go           # Compose 在线管理 API
-├── static/
-│   ├── index.html       # 前端主页面
-│   ├── css/
-│   │   └── style.css    # 样式文件
-│   └── js/
-│       ├── utils.js     # 工具函数（防抖、Toast、分页器、主题）
-│       ├── auth.js      # 认证模块
-│       ├── containers.js # 容器管理
-│       ├── images.js    # 镜像管理
-│       ├── logs.js      # 日志模块
-│       ├── compose.js   # Compose 管理
-│       └── app.js       # 主应用入口
-├── rabbit.sh            # 一键管理脚本
-├── .air.toml            # 开发热重载配置
-├── go.mod / go.sum      # Go 依赖
-└── README.md            # 说明文档
+├── backend/                 # Go 后端
+│   ├── main.go              # 主入口
+│   ├── auth.go              # 认证模块
+│   ├── node.go              # 节点管理模块
+│   ├── scheduler.go         # 容器调度模块
+│   ├── compose.go           # Compose 管理 API
+│   ├── container_exec.go    # 容器终端 WebSocket
+│   └── data/                # 数据存储
+├── frontend/                # Vue 3 前端
+│   ├── src/
+│   │   ├── api/             # API 接口
+│   │   │   ├── auth.ts
+│   │   │   ├── containers.ts
+│   │   │   ├── images.ts
+│   │   │   ├── networks.ts
+│   │   │   ├── volumes.ts
+│   │   │   ├── registry.ts
+│   │   │   ├── dockerConfig.ts
+│   │   │   ├── compose.ts
+│   │   │   ├── nodes.ts
+│   │   │   └── system.ts
+│   │   ├── views/           # 页面组件
+│   │   │   ├── Dashboard.vue
+│   │   │   ├── Containers.vue
+│   │   │   ├── Images.vue
+│   │   │   ├── Networks.vue
+│   │   │   ├── Volumes.vue
+│   │   │   ├── Registry.vue
+│   │   │   ├── DockerConfig.vue
+│   │   │   ├── Compose.vue
+│   │   │   ├── Nodes.vue
+│   │   │   └── Login.vue
+│   │   ├── stores/          # Pinia 状态管理
+│   │   ├── components/      # 可复用组件
+│   │   ├── composables/     # 组合式函数
+│   │   ├── locales/         # 国际化翻译
+│   │   ├── types/           # TypeScript 类型定义
+│   │   └── utils/           # 工具函数
+│   └── vite.config.ts       # Vite 配置
+├── docker-compose.deploy.yml    # Docker 部署配置
+├── docker-compose.master.yml    # Master 节点配置
+├── docker-compose.worker.yml    # Worker 节点配置
+├── Dockerfile               # Docker 镜像构建
+├── rabbit.sh                # 一键管理脚本
+└── README.md                # 说明文档
 ```
+
+## 技术栈
+
+### 后端
+- **Go 1.22+** - 高性能后端语言
+- **Docker SDK** - Docker API 交互
+- **JWT** - 用户认证
+- **HMAC-SHA256** - 节点间认证
+
+### 前端
+- **Vue 3** - 渐进式 JavaScript 框架
+- **TypeScript** - 类型安全
+- **Vite** - 下一代前端构建工具
+- **Element Plus** - Vue 3 UI 组件库
+- **Pinia** - Vue 状态管理
+- **Vue Router** - 路由管理
+- **xterm.js** - 终端模拟器
 
 ## 许可证
 
@@ -283,6 +307,25 @@ MIT License
 欢迎提交 Issue 和 Pull Request！
 
 ## 更新日志
+
+### v2.0.0 (2025-12-27)
+- 🆕 新增存储卷管理功能：
+  - 查看存储卷列表
+  - 创建新存储卷
+  - 删除存储卷
+  - 批量清理未使用的存储卷
+- 🆕 新增仓库管理功能：
+  - 管理 Docker 镜像仓库配置
+  - 添加/编辑/删除仓库
+  - 测试仓库连接
+- 🆕 新增 Docker 配置管理功能：
+  - 查看 Docker 系统信息
+  - 配置镜像加速器（支持多个）
+  - 配置私有仓库（支持多个）
+  - 配置 IPv6、iptables
+  - 配置日志驱动和选项
+  - 配置 Live Restore、Cgroup 驱动
+  - 一键重启 Docker 服务
 
 ### v1.3.5 (2025-12-25)
 - 修复了文件系统的bug

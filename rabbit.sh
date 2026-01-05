@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Rabbit Panel 管理脚本
-# 用法: ./rabbit.sh {start|stop|restart|status|log}
+# 用法: ./rabbit.sh {start|stop|restart|status|log|build}
 
 set -e
 
@@ -12,11 +12,14 @@ cd "$SCRIPT_DIR"
 # 配置
 PID_FILE="rabbit-panel.pid"
 LOG_FILE="rabbit-panel.log"
+FRONTEND_DIR="frontend"
+BACKEND_DIR="backend"
 
 # 颜色
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
 # 支持的构建目标与默认编译参数
@@ -27,6 +30,18 @@ BUILD_LDFLAGS="${BUILD_LDFLAGS:--s -w}"
 ensure_go() {
     if ! command -v go > /dev/null 2>&1; then
         echo -e "${RED}错误: 未检测到 go，请先安装 Go 1.22+${NC}"
+        exit 1
+    fi
+}
+
+# 校验 Node.js 环境
+ensure_node() {
+    if ! command -v node > /dev/null 2>&1; then
+        echo -e "${RED}错误: 未检测到 node，请先安装 Node.js 18+${NC}"
+        exit 1
+    fi
+    if ! command -v npm > /dev/null 2>&1; then
+        echo -e "${RED}错误: 未检测到 npm${NC}"
         exit 1
     fi
 }
@@ -58,6 +73,28 @@ is_supported_target() {
         fi
     done
     return 1
+}
+
+# 构建前端
+build_frontend() {
+    echo -e "${BLUE}→ 构建前端...${NC}"
+    
+    ensure_node
+    
+    cd "$FRONTEND_DIR"
+    
+    # 检查是否需要安装依赖
+    if [ ! -d "node_modules" ]; then
+        echo -e "${YELLOW}  安装前端依赖...${NC}"
+        npm install
+    fi
+    
+    # 构建前端
+    npm run build
+    
+    cd "$SCRIPT_DIR"
+    
+    echo -e "${GREEN}  前端构建完成${NC}"
 }
 
 # 针对指定目标执行编译
@@ -92,6 +129,9 @@ build_target() {
 
     mkdir -p "$output_dir"
 
+    # 进入后端目录编译
+    cd "$BACKEND_DIR"
+
     # 使用国内代理加速构建
     local -a envs=("GOOS=linux" "GOARCH=$goarch" "CGO_ENABLED=0" "GOPROXY=https://goproxy.cn,direct")
     if [ -n "$goarm" ]; then
@@ -107,8 +147,10 @@ build_target() {
     fi
 
     echo -e "${GREEN}→ 正在构建 rabbit-panel (${suffix})...${NC}"
-    env "${envs[@]}" go build -trimpath -ldflags "${BUILD_LDFLAGS}" -o "$output_file" .
-    chmod +x "$output_file"
+    env "${envs[@]}" go build -trimpath -ldflags "${BUILD_LDFLAGS}" -o "../$output_file" .
+    chmod +x "../$output_file"
+
+    cd "$SCRIPT_DIR"
 
     if [ "$(detect_host_target)" = "$target" ]; then
         cp "$output_file" ./rabbit-panel
@@ -143,12 +185,10 @@ set_env() {
     export HOST="${HOST:-0.0.0.0}"
 
     if [ -z "$JWT_SECRET" ]; then
-        # echo -e "${YELLOW}提示: JWT_SECRET 未设置，使用默认值${NC}"
         export JWT_SECRET="rabbit-panel-secret-key-change-in-production"
     fi
 
     if [ -z "$NODE_SECRET" ]; then
-        # echo -e "${YELLOW}提示: NODE_SECRET 未设置，使用默认值${NC}"
         export NODE_SECRET="rabbit-panel-node-secret-change-in-production"
     fi
 }
@@ -244,6 +284,12 @@ build() {
     ensure_go
 
     local target="${1:-auto}"
+    local skip_frontend="${2:-}"
+
+    # 构建前端（除非指定跳过）
+    if [ "$skip_frontend" != "--skip-frontend" ]; then
+        build_frontend
+    fi
 
     if [ "$target" = "auto" ]; then
         target="$(detect_host_target)"
@@ -269,6 +315,35 @@ build() {
     build_target "$target"
 }
 
+# 帮助信息
+show_help() {
+    echo "Rabbit Panel 管理脚本"
+    echo ""
+    echo "用法: $0 <命令> [参数]"
+    echo ""
+    echo "命令:"
+    echo "  start              启动 Rabbit Panel"
+    echo "  stop               停止 Rabbit Panel"
+    echo "  restart            重启 Rabbit Panel"
+    echo "  status             查看运行状态"
+    echo "  log                查看日志"
+    echo "  build [target]     构建项目"
+    echo ""
+    echo "构建参数:"
+    echo "  auto               自动检测当前架构 (默认)"
+    echo "  all                构建所有架构"
+    echo "  amd64              构建 Linux AMD64"
+    echo "  arm64              构建 Linux ARM64"
+    echo "  armv7              构建 Linux ARMv7"
+    echo "  --skip-frontend    跳过前端构建"
+    echo ""
+    echo "示例:"
+    echo "  $0 build                    # 构建当前架构"
+    echo "  $0 build all                # 构建所有架构"
+    echo "  $0 build amd64              # 只构建 AMD64"
+    echo "  $0 build auto --skip-frontend  # 跳过前端构建"
+}
+
 # 主逻辑
 case "$1" in
     start)
@@ -292,9 +367,12 @@ case "$1" in
         shift
         build "$@"
         ;;
+    help|--help|-h)
+        show_help
+        ;;
     *)
-        echo "用法: $0 {start|stop|restart|status|build|log}"
-        echo "build 参数: auto(默认)|all|amd64|arm64|armv7"
+        echo "用法: $0 {start|stop|restart|status|build|log|help}"
+        echo "build 参数: auto(默认)|all|amd64|arm64|armv7 [--skip-frontend]"
         exit 1
         ;;
 esac

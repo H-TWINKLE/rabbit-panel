@@ -1,32 +1,46 @@
-FROM golang:1.25-alpine AS builder
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+
+RUN npm ci
+
+COPY frontend/ ./
+
+RUN npm run build
+
+FROM golang:1.24-alpine AS backend-builder
 
 WORKDIR /app
 
-RUN apk add --no-cache gcc musl-dev
+RUN apk add  gcc musl-dev
 
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 
-RUN go env -w GOPROXY=https://proxy.golang.org,direct
+RUN go env -w GOPROXY=https://goproxy.cn,direct
 
-RUN go mod tidy
+RUN go mod download
 
-COPY . .
+COPY backend/ ./
 
-RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o rabbit-panel .
+COPY --from=frontend-builder /app/backend/dist ./dist
+
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o rabbit-panel .
 
 FROM alpine:latest
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-    docker-cli \ 
-    docker-cli-compose \  
-    tzdata=2025c-r0 \
-    ca-certificates=20251003-r0
+RUN apk add \
+    docker-cli \
+    docker-cli-compose \
+    tzdata \
+    ca-certificates
 
 ENV TZ=Asia/Shanghai
 
-COPY --from=builder /app/rabbit-panel .
+COPY --from=backend-builder /app/rabbit-panel .
 
 RUN mkdir -p /app/compose_projects
 
