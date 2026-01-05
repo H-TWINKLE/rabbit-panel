@@ -26,6 +26,9 @@ NC='\033[0m'
 SUPPORTED_TARGETS=("amd64" "arm64" "armv7")
 BUILD_LDFLAGS="${BUILD_LDFLAGS:--s -w}"
 
+# 版本号（可通过参数设置）
+VERSION=""
+
 # 校验 Go 环境
 ensure_go() {
     if ! command -v go > /dev/null 2>&1; then
@@ -124,8 +127,14 @@ build_target() {
             ;;
     esac
 
-    local output_dir="dist/rabbit-panel-${suffix}-release"
-    local output_file="${output_dir}/rabbit-panel-${suffix}"
+    # 构建输出文件名（带可选版本号）
+    local output_name="rabbit-panel-${suffix}"
+    if [ -n "$VERSION" ]; then
+        output_name="rabbit-panel-${suffix}-${VERSION}"
+    fi
+
+    local output_dir="dist/${output_name}-release"
+    local output_file="${output_dir}/${output_name}"
 
     mkdir -p "$output_dir"
 
@@ -146,7 +155,7 @@ build_target() {
         envs+=("CC=$cc_value")
     fi
 
-    echo -e "${GREEN}→ 正在构建 rabbit-panel (${suffix})...${NC}"
+    echo -e "${GREEN}→ 正在构建 ${output_name}...${NC}"
     env "${envs[@]}" go build -trimpath -ldflags "${BUILD_LDFLAGS}" -o "../$output_file" .
     chmod +x "../$output_file"
 
@@ -283,11 +292,33 @@ log() {
 build() {
     ensure_go
 
-    local target="${1:-auto}"
-    local skip_frontend="${2:-}"
+    local target="auto"
+    local skip_frontend=""
+
+    # 解析参数
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --skip-frontend)
+                skip_frontend="1"
+                shift
+                ;;
+            -v|--version)
+                VERSION="$2"
+                shift 2
+                ;;
+            auto|all|amd64|arm64|armv7)
+                target="$1"
+                shift
+                ;;
+            *)
+                echo -e "${RED}未知参数: $1${NC}"
+                exit 1
+                ;;
+        esac
+    done
 
     # 构建前端（除非指定跳过）
-    if [ "$skip_frontend" != "--skip-frontend" ]; then
+    if [ "$skip_frontend" != "1" ]; then
         build_frontend
     fi
 
@@ -336,12 +367,20 @@ show_help() {
     echo "  arm64              构建 Linux ARM64"
     echo "  armv7              构建 Linux ARMv7"
     echo "  --skip-frontend    跳过前端构建"
+    echo "  -v, --version <ver>  设置版本号 (如 v1.3.2)"
     echo ""
     echo "示例:"
-    echo "  $0 build                    # 构建当前架构"
-    echo "  $0 build all                # 构建所有架构"
-    echo "  $0 build amd64              # 只构建 AMD64"
-    echo "  $0 build auto --skip-frontend  # 跳过前端构建"
+    echo "  $0 build                           # 构建当前架构"
+    echo "  $0 build all                       # 构建所有架构"
+    echo "  $0 build amd64                     # 只构建 AMD64"
+    echo "  $0 build amd64 -v v1.3.2           # 构建并设置版本号"
+    echo "  $0 build all --version v1.3.2     # 构建所有架构并设置版本号"
+    echo "  $0 build auto --skip-frontend      # 跳过前端构建"
+    echo "  $0 build arm64 --skip-frontend -v v1.3.2"
+    echo ""
+    echo "输出命名:"
+    echo "  无版本号: rabbit-panel-linux-amd64"
+    echo "  有版本号: rabbit-panel-linux-amd64-v1.3.2"
 }
 
 # 主逻辑
@@ -372,7 +411,7 @@ case "$1" in
         ;;
     *)
         echo "用法: $0 {start|stop|restart|status|build|log|help}"
-        echo "build 参数: auto(默认)|all|amd64|arm64|armv7 [--skip-frontend]"
+        echo "build 参数: auto(默认)|all|amd64|arm64|armv7 [--skip-frontend] [-v <version>]"
         exit 1
         ;;
 esac

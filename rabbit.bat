@@ -3,7 +3,7 @@ chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
 :: Rabbit Panel Windows Build Script
-:: Usage: rabbit.bat {build|help} [target]
+:: Usage: rabbit.bat {build|help} [target] [options]
 
 :: Get script directory
 set "SCRIPT_DIR=%~dp0"
@@ -13,12 +13,14 @@ cd /d "%SCRIPT_DIR%"
 set "FRONTEND_DIR=frontend"
 set "BACKEND_DIR=backend"
 set "BUILD_LDFLAGS=-s -w"
+set "VERSION="
+set "SKIP_FRONTEND="
 
 :: Main logic
 if "%~1"=="" goto show_help
-if "%~1"=="build" goto build
+if "%~1"=="build" goto parse_build_args
 if "%~1"=="build-frontend" goto build_frontend_only
-if "%~1"=="build-backend" goto build_backend_only
+if "%~1"=="build-backend" goto parse_build_backend_args
 if "%~1"=="help" goto show_help
 if "%~1"=="--help" goto show_help
 if "%~1"=="-h" goto show_help
@@ -27,19 +29,77 @@ echo Unknown command: %~1
 goto show_help
 
 :: ============================================
+:: Parse build arguments
+:: ============================================
+:parse_build_args
+set "TARGET=%~2"
+if "%TARGET%"=="" set "TARGET=auto"
+
+:: Parse remaining arguments
+shift
+shift
+:parse_build_loop
+if "%~1"=="" goto do_build
+if "%~1"=="--skip-frontend" (
+    set "SKIP_FRONTEND=1"
+    shift
+    goto parse_build_loop
+)
+if "%~1"=="-v" (
+    set "VERSION=%~2"
+    shift
+    shift
+    goto parse_build_loop
+)
+if "%~1"=="--version" (
+    set "VERSION=%~2"
+    shift
+    shift
+    goto parse_build_loop
+)
+shift
+goto parse_build_loop
+
+:do_build
+if not "%SKIP_FRONTEND%"=="1" (
+    call :build_frontend
+    if errorlevel 1 exit /b 1
+)
+call :do_build_backend
+goto end
+
+:: ============================================
+:: Parse build-backend arguments
+:: ============================================
+:parse_build_backend_args
+set "TARGET=%~2"
+if "%TARGET%"=="" set "TARGET=auto"
+
+:: Parse remaining arguments
+shift
+shift
+:parse_backend_loop
+if "%~1"=="" goto do_build_backend
+if "%~1"=="-v" (
+    set "VERSION=%~2"
+    shift
+    shift
+    goto parse_backend_loop
+)
+if "%~1"=="--version" (
+    set "VERSION=%~2"
+    shift
+    shift
+    goto parse_backend_loop
+)
+shift
+goto parse_backend_loop
+
+:: ============================================
 :: Build frontend only
 :: ============================================
 :build_frontend_only
 call :build_frontend
-goto end
-
-:: ============================================
-:: Build backend only
-:: ============================================
-:build_backend_only
-set "TARGET=%~2"
-if "%TARGET%"=="" set "TARGET=auto"
-call :do_build_backend
 goto end
 
 :: ============================================
@@ -76,23 +136,6 @@ if errorlevel 1 (
 popd
 echo [OK] Frontend build completed
 goto :eof
-
-:: ============================================
-:: Build command entry
-:: ============================================
-:build
-set "TARGET=%~2"
-set "SKIP_FRONTEND=%~3"
-
-if "%TARGET%"=="" set "TARGET=auto"
-
-if not "%SKIP_FRONTEND%"=="--skip-frontend" (
-    call :build_frontend
-    if errorlevel 1 exit /b 1
-)
-
-call :do_build_backend
-goto end
 
 :: ============================================
 :: Build backend
@@ -172,12 +215,19 @@ set "B_GOARM=%~3"
 set "B_SUFFIX=%~4"
 set "B_EXT=%~5"
 
-set "OUTPUT_DIR=dist\rabbit-panel-%B_SUFFIX%-release"
-set "OUTPUT_FILE=%OUTPUT_DIR%\rabbit-panel-%B_SUFFIX%%B_EXT%"
+:: Build output filename with optional version
+if "%VERSION%"=="" (
+    set "OUTPUT_NAME=rabbit-panel-%B_SUFFIX%"
+) else (
+    set "OUTPUT_NAME=rabbit-panel-%B_SUFFIX%-%VERSION%"
+)
+
+set "OUTPUT_DIR=dist\%OUTPUT_NAME%-release"
+set "OUTPUT_FILE=%OUTPUT_DIR%\%OUTPUT_NAME%%B_EXT%"
 
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
 
-echo [INFO] Building rabbit-panel (%B_SUFFIX%)...
+echo [INFO] Building %OUTPUT_NAME% ...
 
 pushd "%BACKEND_DIR%"
 
@@ -226,13 +276,21 @@ echo   darwin-amd64    macOS AMD64 (Intel)
 echo   darwin-arm64    macOS ARM64 (Apple Silicon)
 echo.
 echo Options:
-echo   --skip-frontend    Skip frontend build
+echo   --skip-frontend         Skip frontend build
+echo   -v, --version ^<ver^>     Set version (e.g., v1.3.2)
 echo.
 echo Examples:
-echo   %~nx0 build                        Build for current platform
-echo   %~nx0 build all                    Build for all platforms
-echo   %~nx0 build linux-amd64            Build Linux AMD64 only
-echo   %~nx0 build auto --skip-frontend   Skip frontend build
+echo   %~nx0 build                                   Build for current platform
+echo   %~nx0 build all                               Build for all platforms
+echo   %~nx0 build linux-amd64                       Build Linux AMD64 only
+echo   %~nx0 build linux-amd64 -v v1.3.2             Build with version
+echo   %~nx0 build all --version v1.3.2              Build all with version
+echo   %~nx0 build auto --skip-frontend              Skip frontend build
+echo   %~nx0 build linux-arm64 --skip-frontend -v v1.3.2
+echo.
+echo Output naming:
+echo   Without version: rabbit-panel-linux-amd64.exe
+echo   With version:    rabbit-panel-linux-amd64-v1.3.2.exe
 echo.
 goto end
 
