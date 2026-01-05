@@ -4,7 +4,7 @@ WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
 
-RUN npm ci
+RUN npm ci --registry https://registry.npmmirror.com
 
 COPY frontend/ ./
 
