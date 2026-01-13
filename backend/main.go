@@ -76,10 +76,14 @@ var (
 
 // 系统监控数据
 type SystemStats struct {
-	CPU    float64 `json:"cpu"`
-	Memory float64 `json:"memory"`
-	Disk   float64 `json:"disk"`
-	Time   string  `json:"time"`
+	CPU         float64 `json:"cpu"`
+	Memory      float64 `json:"memory"`
+	MemoryUsed  uint64  `json:"memoryUsed"`  // 已用内存 (KB)
+	MemoryTotal uint64  `json:"memoryTotal"` // 总内存 (KB)
+	Disk        float64 `json:"disk"`
+	DiskUsed    uint64  `json:"diskUsed"`  // 已用磁盘 (KB)
+	DiskTotal   uint64  `json:"diskTotal"` // 总磁盘 (KB)
+	Time        string  `json:"time"`
 }
 
 // 容器信息
@@ -214,11 +218,18 @@ func getCPUUsage() (float64, error) {
 	return cpuUsage, nil
 }
 
-// 获取系统内存使用率
-func getMemoryUsage() (float64, error) {
+// 内存使用信息
+type MemoryInfo struct {
+	Usage float64 // 使用率百分比
+	Used  uint64  // 已用内存 (KB)
+	Total uint64  // 总内存 (KB)
+}
+
+// 获取系统内存使用信息
+func getMemoryUsage() (MemoryInfo, error) {
 	file, err := os.Open("/proc/meminfo")
 	if err != nil {
-		return 0, err
+		return MemoryInfo{}, err
 	}
 	defer file.Close()
 
@@ -240,11 +251,11 @@ func getMemoryUsage() (float64, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return 0, err
+		return MemoryInfo{}, err
 	}
 
 	if total == 0 {
-		return 0, fmt.Errorf("无法读取内存信息")
+		return MemoryInfo{}, fmt.Errorf("无法读取内存信息")
 	}
 
 	// 计算已使用内存
@@ -264,34 +275,44 @@ func getMemoryUsage() (float64, error) {
 		memoryUsage = 100
 	}
 
-	return memoryUsage, nil
+	return MemoryInfo{Usage: memoryUsage, Used: used, Total: total}, nil
 }
 
-// 获取磁盘使用率
-func getDiskUsage() (float64, error) {
-	cmd := exec.Command("df", "-h", "/")
+// 磁盘使用信息
+type DiskInfo struct {
+	Usage float64 // 使用率百分比
+	Used  uint64  // 已用磁盘 (KB)
+	Total uint64  // 总磁盘 (KB)
+}
+
+// 获取磁盘使用信息
+func getDiskUsage() (DiskInfo, error) {
+	cmd := exec.Command("df", "-k", "/")
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, err
+		return DiskInfo{}, err
 	}
 
 	lines := strings.Split(string(output), "\n")
 	if len(lines) < 2 {
-		return 0, fmt.Errorf("无法解析磁盘信息")
+		return DiskInfo{}, fmt.Errorf("无法解析磁盘信息")
 	}
 
 	fields := strings.Fields(lines[1])
 	if len(fields) < 5 {
-		return 0, fmt.Errorf("磁盘信息格式错误")
+		return DiskInfo{}, fmt.Errorf("磁盘信息格式错误")
 	}
 
+	// df -k 输出: Filesystem 1K-blocks Used Available Use% Mounted
+	total, _ := strconv.ParseUint(fields[1], 10, 64)
+	used, _ := strconv.ParseUint(fields[2], 10, 64)
 	usageStr := strings.TrimSuffix(fields[4], "%")
 	usage, err := strconv.ParseFloat(usageStr, 64)
 	if err != nil {
-		return 0, err
+		return DiskInfo{}, err
 	}
 
-	return usage, nil
+	return DiskInfo{Usage: usage, Used: used, Total: total}, nil
 }
 
 // 系统监控 API
@@ -301,21 +322,25 @@ func handleSystemStats(w http.ResponseWriter, r *http.Request) {
 		cpu = 0
 	}
 
-	memory, err := getMemoryUsage()
+	memInfo, err := getMemoryUsage()
 	if err != nil {
-		memory = 0
+		memInfo = MemoryInfo{}
 	}
 
-	disk, err := getDiskUsage()
+	diskInfo, err := getDiskUsage()
 	if err != nil {
-		disk = 0
+		diskInfo = DiskInfo{}
 	}
 
 	stats := SystemStats{
-		CPU:    cpu,
-		Memory: memory,
-		Disk:   disk,
-		Time:   time.Now().Format("2006-01-02 15:04:05"),
+		CPU:         cpu,
+		Memory:      memInfo.Usage,
+		MemoryUsed:  memInfo.Used,
+		MemoryTotal: memInfo.Total,
+		Disk:        diskInfo.Usage,
+		DiskUsed:    diskInfo.Used,
+		DiskTotal:   diskInfo.Total,
+		Time:        time.Now().Format("2006-01-02 15:04:05"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -357,13 +382,19 @@ func handleContainers(w http.ResponseWriter, r *http.Request) {
 			name = c.ID[:12]
 		}
 
-		// 格式化端口映射
+		// 格式化端口映射（去重，因为 IPv4/IPv6 可能返回重复记录）
+		portSet := make(map[string]bool)
 		ports := []string{}
 		for _, p := range c.Ports {
+			var portStr string
 			if p.PublicPort != 0 {
-				ports = append(ports, fmt.Sprintf("%d:%d/%s", p.PublicPort, p.PrivatePort, p.Type))
+				portStr = fmt.Sprintf("%d:%d/%s", p.PublicPort, p.PrivatePort, p.Type)
 			} else if p.PrivatePort != 0 {
-				ports = append(ports, fmt.Sprintf(":%d/%s", p.PrivatePort, p.Type))
+				portStr = fmt.Sprintf(":%d/%s", p.PrivatePort, p.Type)
+			}
+			if portStr != "" && !portSet[portStr] {
+				portSet[portStr] = true
+				ports = append(ports, portStr)
 			}
 		}
 		portsStr := strings.Join(ports, ", ")
@@ -959,6 +990,16 @@ func handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取 tail 参数，默认 100
+	tail := r.URL.Query().Get("tail")
+	if tail == "" {
+		tail = "100"
+	}
+
+	// 获取 follow 参数，默认 true
+	followStr := r.URL.Query().Get("follow")
+	follow := followStr != "false"
+
 	// 检查客户端是否断开连接
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -972,8 +1013,8 @@ func handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 	options := types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Tail:       "100",
-		Follow:     true,
+		Tail:       tail,
+		Follow:     follow,
 		Timestamps: false,
 	}
 
@@ -1382,6 +1423,7 @@ func handleNetworks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := context.Background()
 	networkList := make([]NetworkInfo, 0, len(networks))
 	for _, n := range networks {
 		// 获取网络 ID
@@ -1399,6 +1441,12 @@ func handleNetworks(w http.ResponseWriter, r *http.Request) {
 		// 格式化创建时间
 		created := n.Created.Format("2006-01-02 15:04:05")
 
+		// NetworkList 不返回容器信息，需要 Inspect 获取
+		containerCount := 0
+		if detail, err := dockerClient.NetworkInspect(ctx, n.ID, types.NetworkInspectOptions{}); err == nil {
+			containerCount = len(detail.Containers)
+		}
+
 		networkList = append(networkList, NetworkInfo{
 			ID:         networkID,
 			Name:       n.Name,
@@ -1406,7 +1454,7 @@ func handleNetworks(w http.ResponseWriter, r *http.Request) {
 			Scope:      n.Scope,
 			IPAM:       ipam,
 			Internal:   n.Internal,
-			Containers: len(n.Containers),
+			Containers: containerCount,
 			Created:    created,
 		})
 	}
@@ -1557,35 +1605,45 @@ func handleNetworkInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取连接的容器
-	containers := make([]map[string]string, 0)
+	// 获取连接的容器（使用前端期望的字段名）
+	connectedContainers := make([]map[string]string, 0)
 	for id, endpoint := range network.Containers {
 		shortID := id
 		if len(shortID) > 12 {
 			shortID = shortID[:12]
 		}
-		containers = append(containers, map[string]string{
-			"id":   shortID,
-			"name": endpoint.Name,
-			"ipv4": endpoint.IPv4Address,
-			"ipv6": endpoint.IPv6Address,
-			"mac":  endpoint.MacAddress,
+		connectedContainers = append(connectedContainers, map[string]string{
+			"id":         shortID,
+			"name":       endpoint.Name,
+			"ipAddress":  endpoint.IPv4Address,
+			"macAddress": endpoint.MacAddress,
 		})
 	}
 
+	// 获取子网和网关
+	subnet := ""
+	gateway := ""
+	if network.IPAM.Config != nil && len(network.IPAM.Config) > 0 {
+		subnet = network.IPAM.Config[0].Subnet
+		gateway = network.IPAM.Config[0].Gateway
+	}
+
 	result := map[string]interface{}{
-		"id":         network.ID,
-		"name":       network.Name,
-		"driver":     network.Driver,
-		"scope":      network.Scope,
-		"internal":   network.Internal,
-		"attachable": network.Attachable,
-		"ingress":    network.Ingress,
-		"ipam":       network.IPAM,
-		"options":    network.Options,
-		"labels":     network.Labels,
-		"containers": containers,
-		"created":    network.Created.Format("2006-01-02 15:04:05"),
+		"id":                  network.ID,
+		"name":                network.Name,
+		"driver":              network.Driver,
+		"scope":               network.Scope,
+		"internal":            network.Internal,
+		"attachable":          network.Attachable,
+		"ingress":             network.Ingress,
+		"subnet":              subnet,
+		"gateway":             gateway,
+		"ipam":                network.IPAM,
+		"options":             network.Options,
+		"labels":              network.Labels,
+		"connectedContainers": connectedContainers,
+		"containers":          len(connectedContainers), // 容器数量
+		"created":             network.Created.Format("2006-01-02 15:04:05"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

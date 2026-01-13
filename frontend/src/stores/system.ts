@@ -15,7 +15,11 @@ export const useSystemStore = defineStore('system', () => {
   const stats = reactive<SystemStats>({
     cpu: 0,
     memory: 0,
+    memoryUsed: 0,
+    memoryTotal: 0,
     disk: 0,
+    diskUsed: 0,
+    diskTotal: 0,
     time: '',
   })
   
@@ -37,7 +41,11 @@ export const useSystemStore = defineStore('system', () => {
       
       stats.cpu = data.cpu ?? 0
       stats.memory = data.memory ?? 0
+      stats.memoryUsed = data.memoryUsed ?? 0
+      stats.memoryTotal = data.memoryTotal ?? 0
       stats.disk = data.disk ?? 0
+      stats.diskUsed = data.diskUsed ?? 0
+      stats.diskTotal = data.diskTotal ?? 0
       stats.time = data.time ?? ''
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch system stats'

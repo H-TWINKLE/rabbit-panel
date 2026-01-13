@@ -132,24 +132,23 @@ export const useComposeStore = defineStore('compose', () => {
    */
   function executeAction(
     project: string,
-    action: 'up' | 'down' | 'restart' | 'pull' | 'logs'
+    action: 'up' | 'down' | 'restart' | 'pull'
   ): AbortController {
     actionLoading.value = true
     actionOutput.value = ''
     
     const controller = composeApi.actionStream(project, action, {
       onLog: (message) => {
-        actionOutput.value += message
+        // 每条日志后加换行符
+        actionOutput.value += message + '\n'
       },
       onError: (message) => {
-        actionOutput.value += `\n❌ 错误: ${message}\n`
+        actionOutput.value += `❌ 错误: ${message}\n`
       },
       onDone: async () => {
         actionLoading.value = false
-        // Refresh project status after action (except logs)
-        if (action !== 'logs') {
-          await fetchProjectStatus(project)
-        }
+        // Refresh project status after action
+        await fetchProjectStatus(project)
       }
     })
     

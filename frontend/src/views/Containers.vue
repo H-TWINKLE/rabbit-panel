@@ -98,6 +98,40 @@
         class-name="hidden-sm-and-down"
       />
       <el-table-column
+        prop="cpu"
+        label="CPU"
+        min-width="80"
+        class-name="hidden-md-and-down"
+      >
+        <template #default="{ row }">
+          <template v-if="row.state === 'running'">
+            <span v-if="loadingStats[row.id]">...</span>
+            <span v-else-if="containerStats[row.id]">{{ containerStats[row.id]!.cpu_percent.toFixed(1) }}%</span>
+            <span v-else>-</span>
+          </template>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="memory"
+        :label="t('system.memory')"
+        min-width="120"
+        class-name="hidden-md-and-down"
+      >
+        <template #default="{ row }">
+          <template v-if="row.state === 'running'">
+            <span v-if="loadingStats[row.id]">...</span>
+            <template v-else-if="containerStats[row.id]">
+              <span>{{ formatMemory(containerStats[row.id]!.memory_usage) }}</span>
+              <span v-if="containerStats[row.id]!.has_memory_limit" class="memory-limit"> / {{ formatMemory(containerStats[row.id]!.memory_limit) }}</span>
+              <span v-else class="memory-limit"> / 无限制</span>
+            </template>
+            <span v-else>-</span>
+          </template>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column
         prop="created"
         :label="t('common.time')"
         min-width="170"
@@ -182,12 +216,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, onUnmounted } from 'vue'
+import { ref, onMounted, watch, computed, onUnmounted, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { Plus, Refresh, Search, Monitor } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useContainerStore, type ContainerState, type SortField } from '@/stores/containers'
 import { useI18n } from '@/composables/useI18n'
+import { containerApi } from '@/api/containers'
+import type { ContainerStats } from '@/types'
 import ContainerActions from '@/components/container/ContainerActions.vue'
 import CreateContainerDialog from '@/components/container/CreateContainerDialog.vue'
 import DockerRunDialog from '@/components/container/DockerRunDialog.vue'
@@ -199,6 +235,50 @@ import ContainerConfig from '@/components/container/ContainerConfig.vue'
 const { t } = useI18n()
 const route = useRoute()
 const containerStore = useContainerStore()
+
+// 容器资源统计缓存
+const containerStats = reactive<Record<string, ContainerStats | null>>({})
+const loadingStats = reactive<Record<string, boolean>>({})
+
+// 格式化内存大小
+function formatMemory(bytes: number): string {
+  if (bytes === 0) return '-'
+  const mb = bytes / 1024 / 1024
+  if (mb >= 1024) {
+    return `${(mb / 1024).toFixed(1)} GB`
+  }
+  return `${mb.toFixed(0)} MB`
+}
+
+// 获取容器 stats
+async function fetchContainerStats(containerId: string) {
+  if (loadingStats[containerId]) return
+  loadingStats[containerId] = true
+  try {
+    const stats = await containerApi.stats(containerId)
+    containerStats[containerId] = stats
+  } catch {
+    containerStats[containerId] = null
+  } finally {
+    loadingStats[containerId] = false
+  }
+}
+
+// 批量获取运行中容器的 stats
+async function fetchAllRunningStats() {
+  const runningContainers = containerStore.containers.filter(c => c.state === 'running')
+  // 并行获取，但限制并发数
+  const batchSize = 5
+  for (let i = 0; i < runningContainers.length; i += batchSize) {
+    const batch = runningContainers.slice(i, i + batchSize)
+    await Promise.all(batch.map(c => fetchContainerStats(c.id)))
+  }
+}
+
+// 监听容器列表变化，自动获取 stats
+watch(() => containerStore.containers, () => {
+  fetchAllRunningStats()
+}, { immediate: true })
 
 // Responsive state
 const windowWidth = ref(window.innerWidth)
@@ -402,6 +482,11 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.memory-limit {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 /* Responsive styles */

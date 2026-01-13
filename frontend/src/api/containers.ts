@@ -130,11 +130,13 @@ export const containerApi = {
   /**
    * Get container logs as SSE stream
    * @param containerId Container ID
+   * @param tail Number of lines or 'all' for all logs
+   * @param follow Whether to follow new logs (default: true)
    * @returns EventSource for streaming logs
    */
-  logs(containerId: string): EventSource {
+  logs(containerId: string, tail: number | string = 100, follow: boolean = true): EventSource {
     const token = getToken()
-    return new EventSource(`/api/containers/logs?id=${encodeURIComponent(containerId)}&token=${encodeURIComponent(token || '')}`)
+    return new EventSource(`/api/containers/logs?id=${encodeURIComponent(containerId)}&tail=${tail}&follow=${follow}&token=${encodeURIComponent(token || '')}`)
   },
 
   /**

@@ -48,6 +48,8 @@
           </el-button>
         </el-form-item>
       </el-form>
+
+      <p class="login-hint">初始账号密码：admin / admin</p>
     </div>
   </div>
 </template>
@@ -197,5 +199,12 @@ async function handleLogin() {
 .login-button {
   width: 100%;
   margin-top: 8px;
+}
+
+.login-hint {
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 16px 0 0 0;
 }
 </style>

@@ -72,6 +72,7 @@ export interface ContainerStats {
   memory_usage: number
   memory_limit: number
   memory_percent: number
+  has_memory_limit: boolean  // 是否设置了内存限制
   network_rx: number
   network_tx: number
   block_read: number
@@ -163,7 +164,11 @@ export interface ComposeContainer {
 export interface SystemStats {
   cpu: number
   memory: number
+  memoryUsed: number  // 已用内存 (KB)
+  memoryTotal: number // 总内存 (KB)
   disk: number
+  diskUsed: number    // 已用磁盘 (KB)
+  diskTotal: number   // 总磁盘 (KB)
   time: string
 }
 

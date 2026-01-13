@@ -286,8 +286,8 @@ async function loadConfig() {
   loading.value = true
   try {
     config.value = await containerApi.inspect(props.containerId)
-    // Initialize resource form
-    resourceForm.memory = Math.round((config.value.memory || 0) / 1024 / 1024)
+    // Initialize resource form (后端已返回 MB 和核心数)
+    resourceForm.memory = config.value.memory || 0
     resourceForm.cpus = config.value.cpus || 0
     resourceForm.restart = config.value.restart || 'no'
   } catch {
@@ -331,7 +331,8 @@ async function handleRename() {
 // Resource updates
 async function updateMemory() {
   try {
-    await containerApi.update(props.containerId, { memory: resourceForm.memory * 1024 * 1024 })
+    // 直接传 MB，后端负责转换为字节
+    await containerApi.update(props.containerId, { memory: resourceForm.memory })
     ElMessage.success(t('config.updateSuccess'))
     emit('updated')
   } catch {

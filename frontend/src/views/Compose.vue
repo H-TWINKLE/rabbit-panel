@@ -395,7 +395,7 @@ function handleFileChange(_content: string) {
   // Could be used for auto-save or validation
 }
 
-async function handleAction(action: 'up' | 'down' | 'restart' | 'pull' | 'logs') {
+async function handleAction(action: 'up' | 'down' | 'restart' | 'pull') {
   if (!selectedProject.value) return
   composeStore.executeAction(selectedProject.value, action)
 }

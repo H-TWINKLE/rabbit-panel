@@ -14,7 +14,7 @@
           v-model="searchQuery"
           :placeholder="t('container.searchLogs')"
           clearable
-          style="width: 300px"
+          style="width: 240px"
           @input="handleSearch"
         >
           <template #prefix>
@@ -22,7 +22,13 @@
           </template>
         </el-input>
         <div class="toolbar-right">
-          <el-checkbox v-model="autoScroll">Auto-scroll</el-checkbox>
+          <el-switch
+            v-model="showAllLogs"
+            active-text="全部日志"
+            inactive-text="实时日志"
+            @change="handleModeChange"
+          />
+          <el-checkbox v-model="autoScroll" :disabled="showAllLogs">Auto-scroll</el-checkbox>
           <el-button size="small" @click="clearLogs">
             <el-icon><Delete /></el-icon>
             Clear
@@ -91,6 +97,7 @@ const searchQuery = ref('')
 const autoScroll = ref(true)
 const isConnected = ref(false)
 const logsRef = ref<HTMLElement>()
+const showAllLogs = ref(false)
 
 let eventSource: EventSource | null = null
 
@@ -141,12 +148,26 @@ watch(logs, scrollToBottom, { deep: true })
 
 function handleOpen() {
   if (!props.containerId) return
+  showAllLogs.value = false
+  connectLogs()
+}
+
+function connectLogs() {
+  // 关闭现有连接
+  if (eventSource) {
+    eventSource.close()
+    eventSource = null
+  }
 
   logs.value = []
   isConnected.value = false
 
+  // tail=all 表示全部日志，否则默认100行 + 实时追加
+  const tail = showAllLogs.value ? 'all' : 100
+  const follow = !showAllLogs.value
+
   // Create SSE connection
-  eventSource = containerApi.logs(props.containerId)
+  eventSource = containerApi.logs(props.containerId, tail, follow)
 
   eventSource.onopen = () => {
     isConnected.value = true
@@ -158,8 +179,8 @@ function handleOpen() {
       const logLine = event.data.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
       logs.value.push(logLine)
       
-      // Limit log buffer to prevent memory issues
-      if (logs.value.length > 10000) {
+      // Limit log buffer to prevent memory issues (only for realtime mode)
+      if (!showAllLogs.value && logs.value.length > 10000) {
         logs.value = logs.value.slice(-5000)
       }
     }
@@ -170,6 +191,10 @@ function handleOpen() {
     eventSource?.close()
     eventSource = null
   }
+}
+
+function handleModeChange() {
+  connectLogs()
 }
 
 function handleClose() {
@@ -221,13 +246,15 @@ onUnmounted(() => {
 .logs-content {
   height: 400px;
   overflow-y: auto;
-  background: var(--el-bg-color-page);
+  background: #1e1e1e;
   border: 1px solid var(--el-border-color);
   border-radius: 4px;
   padding: 10px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #d4d4d4;
 }
 
 .no-logs {
@@ -237,9 +264,10 @@ onUnmounted(() => {
 }
 
 .log-line {
-  white-space: pre-wrap;
+  white-space: pre;
   word-break: break-all;
-  padding: 1px 0;
+  padding: 0;
+  line-height: 1;
 }
 
 .log-line:hover {

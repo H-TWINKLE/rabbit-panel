@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 )
 
 const composeBaseDir = "./compose_projects"
@@ -377,8 +377,12 @@ func handleComposeAction(w http.ResponseWriter, r *http.Request) {
 
 	// 发送 SSE 消息的辅助函数
 	sendEvent := func(eventType, data string) {
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
-		flusher.Flush()
+		// 清理 ANSI 转义序列
+		cleaned := stripAnsi(data)
+		if cleaned != "" {
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, cleaned)
+			flusher.Flush()
+		}
 	}
 
 	var cmd *exec.Cmd
@@ -391,6 +395,7 @@ func handleComposeAction(w http.ResponseWriter, r *http.Request) {
 	case "restart":
 		cmd = exec.Command("docker", "compose", "restart")
 	case "pull":
+		// 使用 --quiet 减少进度条输出，或者不使用让用户看到进度
 		cmd = exec.Command("docker", "compose", "pull")
 	case "logs":
 		cmd = exec.Command("docker", "compose", "logs", "--tail=100", "--no-color")
@@ -425,39 +430,44 @@ func handleComposeAction(w http.ResponseWriter, r *http.Request) {
 
 	sendEvent("log", fmt.Sprintf("执行: docker compose %s", req.Action))
 
-	// 合并 stdout 和 stderr 读取
+	// 使用 bufio.Scanner 按行读取
+	done := make(chan bool, 2)
+
+	// 读取 stdout
 	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stdout.Read(buf)
-			if n > 0 {
-				sendEvent("log", string(buf[:n]))
-			}
-			if err != nil {
-				break
+		scanner := bufio.NewScanner(stdout)
+		// 增大缓冲区以处理长行
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, 64*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				sendEvent("log", line)
 			}
 		}
+		done <- true
 	}()
 
 	// 读取 stderr
 	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stderr.Read(buf)
-			if n > 0 {
-				sendEvent("log", string(buf[:n]))
-			}
-			if err != nil {
-				break
+		scanner := bufio.NewScanner(stderr)
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, 64*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line != "" {
+				sendEvent("log", line)
 			}
 		}
+		done <- true
 	}()
+
+	// 等待两个 goroutine 完成
+	<-done
+	<-done
 
 	// 等待命令完成
 	err = cmd.Wait()
-	
-	// 稍等一下确保所有输出都发送了
-	time.Sleep(100 * time.Millisecond)
 
 	if err != nil {
 		log.Printf("[Compose] Action failed, project: %s, action: %s, error: %v", req.Project, req.Action, err)
@@ -467,6 +477,34 @@ func handleComposeAction(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Compose] Action success, project: %s, action: %s", req.Project, req.Action)
 		sendEvent("done", "success")
 	}
+}
+
+// stripAnsi 移除 ANSI 转义序列
+func stripAnsi(s string) string {
+	// 简单的 ANSI 转义序列移除
+	// 匹配 ESC[ ... m 和 ESC[ ... K 等控制序列
+	result := make([]byte, 0, len(s))
+	i := 0
+	for i < len(s) {
+		if i+1 < len(s) && s[i] == '\x1b' && s[i+1] == '[' {
+			// 跳过 ANSI 序列
+			j := i + 2
+			for j < len(s) && !((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z')) {
+				j++
+			}
+			if j < len(s) {
+				j++ // 跳过结束字符
+			}
+			i = j
+		} else if s[i] == '\r' {
+			// 跳过回车符（进度条常用）
+			i++
+		} else {
+			result = append(result, s[i])
+			i++
+		}
+	}
+	return string(result)
 }
 
 // 删除 Compose 项目

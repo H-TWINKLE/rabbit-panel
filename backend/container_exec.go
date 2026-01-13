@@ -694,11 +694,11 @@ func handleContainerInspect(w http.ResponseWriter, r *http.Request) {
 		"restart":         string(info.HostConfig.RestartPolicy.Name),
 		"restartMaxRetry": info.HostConfig.RestartPolicy.MaximumRetryCount,
 
-		// 资源限制
-		"memory":       info.HostConfig.Memory,
-		"memorySwap":   info.HostConfig.MemorySwap,
-		"memoryRes":    info.HostConfig.MemoryReservation,
-		"cpus":         info.HostConfig.NanoCPUs,
+		// 资源限制 (转换为用户友好的单位)
+		"memory":       info.HostConfig.Memory / 1024 / 1024,           // 字节 -> MB
+		"memorySwap":   info.HostConfig.MemorySwap / 1024 / 1024,       // 字节 -> MB
+		"memoryRes":    info.HostConfig.MemoryReservation / 1024 / 1024, // 字节 -> MB
+		"cpus":         float64(info.HostConfig.NanoCPUs) / 1e9,        // NanoCPUs -> 核心数
 		"cpuShares":    info.HostConfig.CPUShares,
 		"cpusetCpus":   info.HostConfig.CpusetCpus,
 		"cpusetMems":   info.HostConfig.CpusetMems,
@@ -733,10 +733,10 @@ func handleContainerUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ContainerID string `json:"container_id"`
-		Memory      int64  `json:"memory"`  // 内存限制（MB）
-		CPUs        int64  `json:"cpus"`    // CPU 限制（核心数）
-		Restart     string `json:"restart"` // 重启策略
+		ContainerID string  `json:"container_id"`
+		Memory      int64   `json:"memory"`  // 内存限制（MB）
+		CPUs        float64 `json:"cpus"`    // CPU 限制（核心数，支持小数如 0.5）
+		Restart     string  `json:"restart"` // 重启策略
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -763,8 +763,8 @@ func handleContainerUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.CPUs > 0 {
-		// 前端传的是核心数（如 1），转换为纳秒
-		updateConfig.NanoCPUs = req.CPUs * 1e9
+		// 前端传的是核心数（如 0.5, 1, 2），转换为纳秒
+		updateConfig.NanoCPUs = int64(req.CPUs * 1e9)
 	}
 
 	if req.Restart != "" {
@@ -995,16 +995,17 @@ func handleContainerRecreate(w http.ResponseWriter, r *http.Request) {
 
 // 容器资源统计信息
 type ContainerStats struct {
-	CPUPercent    float64 `json:"cpu_percent"`
-	CPUCores      int     `json:"cpu_cores"`
-	MemoryUsage   int64   `json:"memory_usage"`
-	MemoryLimit   int64   `json:"memory_limit"`
-	MemoryPercent float64 `json:"memory_percent"`
-	NetworkRx     int64   `json:"network_rx"`
-	NetworkTx     int64   `json:"network_tx"`
-	BlockRead     int64   `json:"block_read"`
-	BlockWrite    int64   `json:"block_write"`
-	PIDs          uint64  `json:"pids"`
+	CPUPercent     float64 `json:"cpu_percent"`
+	CPUCores       int     `json:"cpu_cores"`
+	MemoryUsage    int64   `json:"memory_usage"`
+	MemoryLimit    int64   `json:"memory_limit"`
+	MemoryPercent  float64 `json:"memory_percent"`
+	HasMemoryLimit bool    `json:"has_memory_limit"` // 是否设置了内存限制
+	NetworkRx      int64   `json:"network_rx"`
+	NetworkTx      int64   `json:"network_tx"`
+	BlockRead      int64   `json:"block_read"`
+	BlockWrite     int64   `json:"block_write"`
+	PIDs           uint64  `json:"pids"`
 }
 
 // 获取容器资源统计
@@ -1018,16 +1019,29 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 获取容器统计信息（非流式，只获取一次）
-	statsResp, err := dockerClient.ContainerStats(ctx, containerID, false)
+	// 获取容器配置，检查是否设置了内存限制
+	containerInfo, err := dockerClient.ContainerInspect(ctx, containerID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("获取容器信息失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	// 容器配置的内存限制（0 表示无限制）
+	configuredMemoryLimit := containerInfo.HostConfig.Memory
+
+	// 获取容器统计信息（使用流式模式获取一次完整数据）
+	// 非流式模式 PreCPUStats 可能为空，导致 CPU 计算为 0
+	statsResp, err := dockerClient.ContainerStats(ctx, containerID, true)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("获取统计信息失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 	defer statsResp.Body.Close()
 
+	// 读取第一次数据（用于获取 PreCPUStats）
 	var stats types.StatsJSON
-	if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+	decoder := json.NewDecoder(statsResp.Body)
+	if err := decoder.Decode(&stats); err != nil {
 		http.Error(w, fmt.Sprintf("解析统计信息失败: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -1036,14 +1050,29 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	cpuPercent := 0.0
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+	onlineCPUs := stats.CPUStats.OnlineCPUs
+	if onlineCPUs == 0 {
+		// 某些情况下 OnlineCPUs 可能为 0，使用 PercpuUsage 长度作为备选
+		onlineCPUs = uint32(len(stats.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if onlineCPUs == 0 {
+		onlineCPUs = 1 // 至少 1 个 CPU
+	}
 	if systemDelta > 0 && cpuDelta > 0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
+		cpuPercent = (cpuDelta / systemDelta) * float64(onlineCPUs) * 100.0
+	}
+
+	// 确定内存限制：优先使用容器配置的限制，否则使用系统返回的（即服务器总内存）
+	memoryLimit := int64(stats.MemoryStats.Limit)
+	hasMemoryLimit := configuredMemoryLimit > 0
+	if hasMemoryLimit {
+		memoryLimit = configuredMemoryLimit
 	}
 
 	// 计算内存使用率
 	memoryPercent := 0.0
-	if stats.MemoryStats.Limit > 0 {
-		memoryPercent = float64(stats.MemoryStats.Usage) / float64(stats.MemoryStats.Limit) * 100.0
+	if memoryLimit > 0 {
+		memoryPercent = float64(stats.MemoryStats.Usage) / float64(memoryLimit) * 100.0
 	}
 
 	// 计算网络 IO
@@ -1065,16 +1094,17 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := ContainerStats{
-		CPUPercent:    cpuPercent,
-		CPUCores:      int(stats.CPUStats.OnlineCPUs),
-		MemoryUsage:   int64(stats.MemoryStats.Usage),
-		MemoryLimit:   int64(stats.MemoryStats.Limit),
-		MemoryPercent: memoryPercent,
-		NetworkRx:     networkRx,
-		NetworkTx:     networkTx,
-		BlockRead:     blockRead,
-		BlockWrite:    blockWrite,
-		PIDs:          stats.PidsStats.Current,
+		CPUPercent:     cpuPercent,
+		CPUCores:       int(stats.CPUStats.OnlineCPUs),
+		MemoryUsage:    int64(stats.MemoryStats.Usage),
+		MemoryLimit:    memoryLimit,
+		MemoryPercent:  memoryPercent,
+		HasMemoryLimit: hasMemoryLimit, // 新增：是否设置了内存限制
+		NetworkRx:      networkRx,
+		NetworkTx:      networkTx,
+		BlockRead:      blockRead,
+		BlockWrite:     blockWrite,
+		PIDs:           stats.PidsStats.Current,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

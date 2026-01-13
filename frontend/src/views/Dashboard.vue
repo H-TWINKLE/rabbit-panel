@@ -10,6 +10,20 @@ const { t } = useI18n()
 const systemStore = useSystemStore()
 const containerStore = useContainerStore()
 
+// 格式化字节大小 (KB 转为可读格式)
+function formatSize(kb: number): string {
+  if (kb === 0) return '0 B'
+  const gb = kb / 1024 / 1024
+  if (gb >= 1) {
+    return `${gb.toFixed(1)} GB`
+  }
+  const mb = kb / 1024
+  if (mb >= 1) {
+    return `${mb.toFixed(1)} MB`
+  }
+  return `${kb.toFixed(0)} KB`
+}
+
 // 图表实例
 const lineChartRef = ref<HTMLElement | null>(null)
 const pieChartRef = ref<HTMLElement | null>(null)
@@ -52,7 +66,17 @@ function updateLineChart() {
   if (!lineChart.value) return
   
   const option: echarts.EChartsOption = {
-    tooltip: { trigger: 'axis' },
+    tooltip: { 
+      trigger: 'axis',
+      formatter: (params: any) => {
+        if (!Array.isArray(params)) return ''
+        let result = params[0]?.axisValue || ''
+        params.forEach((item: any) => {
+          result += `<br/>${item.marker}${item.seriesName}: ${item.value.toFixed(1)}%`
+        })
+        return result
+      }
+    },
     legend: { data: ['CPU', t('system.memory')], bottom: 0 },
     grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: historyLabels.value, axisLabel: { fontSize: 10, rotate: 30 } },
@@ -204,6 +228,7 @@ const containerStats = computed(() => {
           <div class="stat-info">
             <div class="stat-value">{{ systemStore.stats.memory.toFixed(1) }}%</div>
             <div class="stat-label">{{ t('system.memory') }} {{ t('system.usage') }}</div>
+            <div class="stat-detail">{{ formatSize(systemStore.stats.memoryUsed) }} / {{ formatSize(systemStore.stats.memoryTotal) }}</div>
           </div>
         </div>
         <el-progress :percentage="systemStore.stats.memory" :stroke-width="6" :color="getProgressColor(systemStore.stats.memory)" :show-text="false" />
@@ -214,6 +239,7 @@ const containerStats = computed(() => {
           <div class="stat-info">
             <div class="stat-value">{{ systemStore.stats.disk.toFixed(1) }}%</div>
             <div class="stat-label">{{ t('system.disk') }} {{ t('system.usage') }}</div>
+            <div class="stat-detail">{{ formatSize(systemStore.stats.diskUsed) }} / {{ formatSize(systemStore.stats.diskTotal) }}</div>
           </div>
         </div>
         <el-progress :percentage="systemStore.stats.disk" :stroke-width="6" :color="getProgressColor(systemStore.stats.disk)" :show-text="false" />
@@ -274,6 +300,7 @@ const containerStats = computed(() => {
 .stat-info { flex: 1; }
 .stat-value { font-size: 28px; font-weight: 600; color: var(--el-text-color-primary); }
 .stat-label { font-size: 14px; color: var(--el-text-color-secondary); margin-top: 4px; }
+.stat-detail { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 .container-stats { display: flex; gap: 8px; margin-top: 10px; }
 .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
 .charts-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }

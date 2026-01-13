@@ -55,38 +55,22 @@
       >
         {{ t('compose.pull') }}
       </el-button>
-      <el-tooltip
-        :content="status === 'stopped' ? '项目未运行，无日志' : ''"
-        :disabled="status !== 'stopped'"
-        placement="top"
-      >
-        <el-button
-          :icon="Document"
-          :loading="loading && currentAction === 'logs'"
-          :disabled="!projectName || loading || status === 'stopped'"
-          @click="handleAction('logs')"
-        >
-          {{ t('compose.logs') }}
-        </el-button>
-      </el-tooltip>
       <el-button
         v-if="output"
         :icon="Close"
+        text
         @click="handleClear"
       >
         {{ t('compose.clearOutput') }}
       </el-button>
     </div>
 
-    <!-- Output Panel -->
+    <!-- Output Panel (inline, small) -->
     <div v-if="output || loading" class="output-panel">
       <div class="output-header">
         <span class="output-title">
           <el-icon><Monitor /></el-icon>
           {{ t('compose.output') }}
-          <span v-if="currentAction" class="action-label">
-            ({{ currentAction }})
-          </span>
         </span>
       </div>
       <div class="output-content">
@@ -107,7 +91,6 @@ import {
   VideoPause,
   RefreshRight,
   Download,
-  Document,
   Close,
   Monitor,
   Loading,
@@ -117,7 +100,7 @@ import { useI18n } from '@/composables/useI18n'
 
 const { t } = useI18n()
 
-type ComposeAction = 'up' | 'down' | 'restart' | 'pull' | 'logs'
+type ComposeAction = 'up' | 'down' | 'restart' | 'pull'
 
 const props = defineProps<{
   projectName: string | null
@@ -163,13 +146,14 @@ defineExpose({
 .compose-actions {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .action-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .output-panel {
@@ -181,8 +165,7 @@ defineExpose({
 .output-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 12px;
   background: var(--el-fill-color-light);
   border-bottom: 1px solid var(--el-border-color-light);
 }
@@ -191,29 +174,26 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
 }
 
-.action-label {
-  color: var(--el-text-color-secondary);
-  font-weight: normal;
-}
-
 .output-content {
-  max-height: 300px;
+  max-height: 120px;
   overflow: auto;
-  background: var(--el-bg-color);
+  background: #1e1e1e;
 }
 
 .output-content pre {
   margin: 0;
-  padding: 12px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
+  padding: 8px 12px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: pre;
   word-break: break-all;
+  color: #d4d4d4;
 }
 
 .loading-placeholder {
@@ -221,7 +201,8 @@ defineExpose({
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 24px;
-  color: var(--el-text-color-secondary);
+  padding: 16px;
+  color: #999;
+  font-size: 12px;
 }
 </style>
