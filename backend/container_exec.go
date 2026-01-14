@@ -1008,6 +1008,15 @@ type ContainerStats struct {
 	PIDs           uint64  `json:"pids"`
 }
 
+// 辅助函数：获取 map 的所有 key
+func getKeys(m map[string]uint64) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // 获取容器资源统计
 func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	containerID := r.URL.Query().Get("id")
@@ -1029,8 +1038,7 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	// 容器配置的内存限制（0 表示无限制）
 	configuredMemoryLimit := containerInfo.HostConfig.Memory
 
-	// 获取容器统计信息（使用流式模式获取一次完整数据）
-	// 非流式模式 PreCPUStats 可能为空，导致 CPU 计算为 0
+	// 获取容器统计信息（使用流式模式读取两次数据来计算 CPU 差值）
 	statsResp, err := dockerClient.ContainerStats(ctx, containerID, true)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("获取统计信息失败: %v", err), http.StatusInternalServerError)
@@ -1038,18 +1046,25 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	}
 	defer statsResp.Body.Close()
 
-	// 读取第一次数据（用于获取 PreCPUStats）
-	var stats types.StatsJSON
+	// 读取第一次数据
+	var stats1 types.StatsJSON
 	decoder := json.NewDecoder(statsResp.Body)
+	if err := decoder.Decode(&stats1); err != nil {
+		http.Error(w, fmt.Sprintf("解析统计信息失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 读取第二次数据（用于计算 CPU 差值）
+	var stats types.StatsJSON
 	if err := decoder.Decode(&stats); err != nil {
 		http.Error(w, fmt.Sprintf("解析统计信息失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// 计算 CPU 使用率
+	// 计算 CPU 使用率（使用两次采样的差值）
 	cpuPercent := 0.0
-	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats1.CPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(stats.CPUStats.SystemUsage - stats1.CPUStats.SystemUsage)
 	onlineCPUs := stats.CPUStats.OnlineCPUs
 	if onlineCPUs == 0 {
 		// 某些情况下 OnlineCPUs 可能为 0，使用 PercpuUsage 长度作为备选
@@ -1069,10 +1084,46 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 		memoryLimit = configuredMemoryLimit
 	}
 
+	// 计算实际内存使用量（排除缓存）
+	// Docker stats 的计算方式：usage - cache (或 inactive_file)
+	// 不同的 cgroup 版本和系统使用不同的字段名
+	memoryUsage := int64(stats.MemoryStats.Usage)
+	
+	// 调试日志
+	log.Printf("[Stats] Container %s - Raw Usage: %d, Limit: %d", containerID[:12], stats.MemoryStats.Usage, memoryLimit)
+	if stats.MemoryStats.Stats != nil {
+		log.Printf("[Stats] Available stats keys: %v", getKeys(stats.MemoryStats.Stats))
+	}
+	
+	// 尝试减去缓存内存（按优先级尝试不同的字段）
+	if stats.MemoryStats.Stats != nil {
+		// 优先级1: cache 字段
+		if cache, ok := stats.MemoryStats.Stats["cache"]; ok {
+			memoryUsage -= int64(cache)
+			log.Printf("[Stats] Subtracted cache: %d, result: %d", cache, memoryUsage)
+		} else if totalInactiveFile, ok := stats.MemoryStats.Stats["total_inactive_file"]; ok {
+			// 优先级2: total_inactive_file
+			memoryUsage -= int64(totalInactiveFile)
+			log.Printf("[Stats] Subtracted total_inactive_file: %d, result: %d", totalInactiveFile, memoryUsage)
+		} else if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok {
+			// 优先级3: inactive_file (某些系统没有 total_ 前缀)
+			memoryUsage -= int64(inactiveFile)
+			log.Printf("[Stats] Subtracted inactive_file: %d, result: %d", inactiveFile, memoryUsage)
+		}
+	}
+	
+	// 确保内存使用量不为负数
+	if memoryUsage < 0 {
+		memoryUsage = int64(stats.MemoryStats.Usage)
+		log.Printf("[Stats] Memory usage was negative, using raw usage: %d", memoryUsage)
+	}
+	
+	log.Printf("[Stats] Final memory usage: %d (%.2f MB)", memoryUsage, float64(memoryUsage)/1024/1024)
+
 	// 计算内存使用率
 	memoryPercent := 0.0
 	if memoryLimit > 0 {
-		memoryPercent = float64(stats.MemoryStats.Usage) / float64(memoryLimit) * 100.0
+		memoryPercent = float64(memoryUsage) / float64(memoryLimit) * 100.0
 	}
 
 	// 计算网络 IO
@@ -1096,7 +1147,7 @@ func handleContainerStats(w http.ResponseWriter, r *http.Request) {
 	result := ContainerStats{
 		CPUPercent:     cpuPercent,
 		CPUCores:       int(stats.CPUStats.OnlineCPUs),
-		MemoryUsage:    int64(stats.MemoryStats.Usage),
+		MemoryUsage:    memoryUsage,
 		MemoryLimit:    memoryLimit,
 		MemoryPercent:  memoryPercent,
 		HasMemoryLimit: hasMemoryLimit, // 新增：是否设置了内存限制
