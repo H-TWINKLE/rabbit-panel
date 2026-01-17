@@ -50,6 +50,8 @@ export default {
     volumes: 'Volumes',
     registry: 'Registry',
     dockerConfig: 'Docker Config',
+    agent: 'AI Assistant',
+    agentSettings: 'Agent Config',
   },
 
   // Header
@@ -434,42 +436,76 @@ export default {
     kernel: 'Kernel Version',
     rootDir: 'Root Directory',
     storageDriver: 'Storage Driver',
-    
+
     registryMirrors: 'Registry Mirrors',
     registryMirrorsHelp: 'Configure Docker registry mirror URLs',
     addMirror: 'Add Mirror',
     mirrorPlaceholder: 'e.g., https://mirror.example.com',
-    
+
     insecureRegistries: 'Insecure Registries',
     insecureRegistriesHelp: 'Allow HTTP registries',
     addRegistry: 'Add Registry',
     registryPlaceholder: 'e.g., 192.168.1.100:5000',
-    
+
     ipv6: 'IPv6 Support',
     ipv6Help: 'Enable IPv6 networking for Docker',
-    
+
     logDriver: 'Log Driver',
     logDriverHelp: 'Default logging driver for containers',
     logOpts: 'Log Options',
     maxSize: 'Max Size',
     maxFile: 'Max Files',
-    
+
     iptables: 'iptables',
     iptablesHelp: 'Allow Docker to manage iptables rules',
-    
+
     liveRestore: 'Live Restore',
     liveRestoreHelp: 'Keep containers running during Docker restart',
-    
+
     cgroupDriver: 'Cgroup Driver',
     cgroupDriverHelp: 'Cgroup management driver for containers',
-    
+
     save: 'Save Configuration',
     saveSuccess: 'Configuration saved successfully',
     saveWarning: 'Configuration saved. Docker restart required to apply changes.',
-    
+
     restart: 'Restart Docker',
     restartConfirm: 'Restarting Docker will affect all running containers. Continue?',
     restartSuccess: 'Docker service restarted successfully',
     restarting: 'Restarting...',
+  },
+
+  // Agent
+  agent: {
+    chatTitle: 'AI Operations Assistant',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    welcome: 'I am your intelligent operations assistant. How can I help you?',
+    checkStatus: 'Check System Status',
+    listContainers: 'List All Containers',
+    inputPlaceholder: 'Enter your command, e.g., Start redis container...',
+    send: 'Send',
+    thinking: 'Thinking...',
+    settingsTitle: 'Agent Configuration',
+    enable: 'Enable Agent',
+    apiUrl: 'API URL',
+    apiTip: 'Compatible with OpenAI format API',
+    apiKey: 'API KEY',
+    model: 'Model Name',
+    save: 'Save Config',
+    saveSuccess: 'Configuration saved',
+    error: 'Error',
+    connectionError: 'Cannot connect to agent service',
+    responseError: 'Failed to get response',
+  },
+
+  // Settings Dialog
+  settings: {
+    pageSettings: 'Page Settings',
+    fontSize: 'Font Size',
+    sidebarWidth: 'Sidebar Width',
+    themeColor: 'Theme Color',
+    reset: 'Reset',
+    confirmRefresh: 'Confirm & Refresh',
   },
 }

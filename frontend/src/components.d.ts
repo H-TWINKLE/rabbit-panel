@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AgentChatFloat: typeof import('./components/common/AgentChatFloat.vue')['default']
     BuildImageDialog: typeof import('./components/image/BuildImageDialog.vue')['default']
     ChangePasswordDialog: typeof import('./components/common/ChangePasswordDialog.vue')['default']
     ComposeActions: typeof import('./components/compose/ComposeActions.vue')['default']
@@ -79,6 +80,7 @@ declare module 'vue' {
     RegistryDialog: typeof import('./components/registry/RegistryDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SettingsDialog: typeof import('./components/common/SettingsDialog.vue')['default']
     SettingsFloat: typeof import('./components/common/SettingsFloat.vue')['default']
     SystemMonitor: typeof import('./components/common/SystemMonitor.vue')['default']
   }

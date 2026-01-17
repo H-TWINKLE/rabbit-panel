@@ -1771,6 +1771,13 @@ func main() {
 		log.Fatalf("初始化认证数据库失败: %v", err)
 	}
 
+	// 初始化聊天历史表
+	if err := initChatHistoryTable(authDB); err != nil {
+		log.Fatalf("初始化聊天历史表失败: %v", err)
+	}
+	// 启动聊天历史清理任务
+	startChatHistoryCleanupScheduler(authDB)
+
 	// 获取运行模式（master 或 worker）
 	mode := os.Getenv("MODE")
 	if mode == "" {
@@ -1962,6 +1969,33 @@ func main() {
 		}
 	}))
 	http.HandleFunc("/api/docker/restart", authMiddleware(handleDockerRestart))
+
+	// 智能体管理 API
+	loadAgentConfig() // 初始化加载配置
+	http.HandleFunc("/api/settings/agent", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			handleGetAgentConfig(w, r)
+		} else if r.Method == http.MethodPost {
+			handleSaveAgentConfig(w, r)
+		} else {
+			http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		}
+	}))
+	http.HandleFunc("/api/agent/chat", authMiddleware(handleAgentChat))
+
+	// 聊天历史 API
+	http.HandleFunc("/api/agent/history", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handleGetChatHistory(authDB)(w, r)
+		case http.MethodPost:
+			handleSaveChatMessage(authDB)(w, r)
+		case http.MethodDelete:
+			handleClearChatHistory(authDB)(w, r)
+		default:
+			http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+		}
+	}))
 
 	// 多节点管理 API（仅 Master 模式）
 	if mode == ModeMaster {

@@ -102,6 +102,22 @@ const router = createRouter({
             title: 'Docker 配置',
           },
         },
+        {
+          path: 'agent',
+          name: 'agent',
+          component: () => import('@/views/AgentChat.vue'),
+          meta: {
+            title: '智能助手',
+          },
+        },
+        {
+          path: 'settings/agent',
+          name: 'agentSettings',
+          component: () => import('@/views/AgentSettings.vue'),
+          meta: {
+            title: '智能体配置',
+          },
+        },
       ],
     },
   ],
@@ -113,10 +129,10 @@ const router = createRouter({
  */
 router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormalized) => {
   const authStore = useAuthStore()
-  
+
   // Check if route or any parent requires authentication
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth !== false)
-  
+
   // If route doesn't require auth, allow access
   if (!requiresAuth || to.meta.requiresAuth === false) {
     // If user is already authenticated and trying to access login, redirect to dashboard
@@ -125,7 +141,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
     }
     return true
   }
-  
+
   // Route requires authentication
   // First check if we have a token
   if (!authStore.isAuthenticated) {
@@ -135,7 +151,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
       query: { redirect: to.fullPath },
     }
   }
-  
+
   // We have a token, verify it's still valid
   // Only check on initial load or if username is not set
   if (!authStore.username) {
@@ -148,7 +164,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from: RouteLocationNormal
       }
     }
   }
-  
+
   // User is authenticated, allow access
   return true
 })

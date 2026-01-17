@@ -18,6 +18,7 @@ import {
   FolderOpened,
   OfficeBuilding,
   Setting,
+  Service,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -25,7 +26,8 @@ import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 import SystemMonitor from '@/components/common/SystemMonitor.vue'
 import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
-import SettingsFloat from '@/components/common/SettingsFloat.vue'
+import SettingsDialog from '@/components/common/SettingsDialog.vue'
+import AgentChatFloat from '@/components/common/AgentChatFloat.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -77,6 +79,17 @@ const languageOptions = [
 ]
 
 // Navigation menu items
+// Settings dialog state
+const showSettingsDialog = ref(false)
+
+function handleOpenSettings() {
+  showSettingsDialog.value = true
+  if (isMobile.value) {
+    drawerVisible.value = false
+  }
+}
+
+// Navigation menu items (Agent moved to floating widget)
 const menuItems = computed(() => [
   { index: '/', icon: Monitor, title: t('sideNav.dashboard') },
   { index: '/containers', icon: Box, title: t('sideNav.containers') },
@@ -87,6 +100,7 @@ const menuItems = computed(() => [
   { index: '/nodes', icon: Cpu, title: t('sideNav.nodes') },
   { index: '/registry', icon: OfficeBuilding, title: t('sideNav.registry') },
   { index: '/docker-config', icon: Setting, title: t('sideNav.dockerConfig') },
+  { index: '/settings/agent', icon: Service, title: t('sideNav.agentSettings') },
 ])
 
 // Handle menu select
@@ -291,6 +305,10 @@ function toggleDrawer() {
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="handleOpenSettings">
+                  <el-icon><Setting /></el-icon>
+                  {{ t('settings.pageSettings') }}
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleChangePassword">
                   <el-icon><SwitchButton /></el-icon>
                   {{ t('header.changePassword') }}
@@ -318,8 +336,11 @@ function toggleDrawer() {
     @success="handlePasswordChangeSuccess"
   />
   
-  <!-- Settings float button -->
-  <SettingsFloat />
+  <!-- Settings dialog -->
+  <SettingsDialog v-model="showSettingsDialog" />
+  
+  <!-- Floating AI Chat -->
+  <AgentChatFloat />
 </template>
 
 <style scoped>

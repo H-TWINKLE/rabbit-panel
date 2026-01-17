@@ -1,6 +1,6 @@
-# Rabbit Panel ｜ 极致轻量容器运维面板
+# Rabbit Panel ｜ 极致轻量AI智能容器运维面板
 
-一个极致轻量的 Docker 运维面板，面向 4GB 内存设备，支持 ARM64 / armv7l / x86_64，多节点集中管理，开箱即用。
+一个极致轻量的 AI 智能 Docker 运维面板，面向 4GB 内存设备，支持 ARM64 / armv7l / x86_64，多节点集中管理，AI 智能运维，开箱即用。
 
 ## 特性
 
@@ -16,12 +16,14 @@
 - 🌐 **响应式设计**：PC/平板/手机良好体验
 - 🔧 **零依赖**：单二进制，内置前端，无数据库，无额外安装
 - 🎯 **多节点管理**：Master/Worker 统一管理多台服务器
-- 🔒 **安全认证**：JWT 登录认证 + HMAC 节点认证
+- 🤖 **AI 运维助手**：集成 LLM 大模型，支持自然语言交互、多步自主运维任务执行
 - 🌍 **国际化**：支持中文/英文切换
 
 ## 预览
 
 ![首页](doc/images/image.png)
+![AI 智能运维](doc/images/image-6.png)
+![AI 智能运维2](doc/images/image-7.png)
 ![容器管理](doc/images/image-1.png)
 ![镜像管理](doc/images/image-2.png)
 ![Compose 管理](doc/images/image-3.png)

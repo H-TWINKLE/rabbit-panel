@@ -50,6 +50,8 @@ export default {
     volumes: '存储卷管理',
     registry: '仓库管理',
     dockerConfig: 'Docker 配置',
+    agent: '智能运维助手',
+    agentSettings: '智能体配置',
   },
 
   // Header
@@ -434,42 +436,76 @@ export default {
     kernel: '内核版本',
     rootDir: '数据目录',
     storageDriver: '存储驱动',
-    
+
     registryMirrors: '镜像加速器',
     registryMirrorsHelp: '配置 Docker 镜像加速器地址',
     addMirror: '添加加速器',
     mirrorPlaceholder: '例如：https://mirror.example.com',
-    
+
     insecureRegistries: '私有仓库',
     insecureRegistriesHelp: '允许使用 HTTP 协议的私有仓库',
     addRegistry: '添加私有仓库',
     registryPlaceholder: '例如：192.168.1.100:5000',
-    
+
     ipv6: 'IPv6 支持',
     ipv6Help: '启用 Docker 的 IPv6 网络支持',
-    
+
     logDriver: '日志驱动',
     logDriverHelp: '容器默认日志驱动',
     logOpts: '日志选项',
     maxSize: '单文件大小',
     maxFile: '文件数量',
-    
+
     iptables: 'iptables',
     iptablesHelp: '允许 Docker 管理 iptables 规则',
-    
+
     liveRestore: 'Live Restore',
     liveRestoreHelp: 'Docker 重启时保持容器运行',
-    
+
     cgroupDriver: 'Cgroup 驱动',
     cgroupDriverHelp: '容器 cgroup 管理驱动',
-    
+
     save: '保存配置',
     saveSuccess: '配置保存成功',
     saveWarning: '配置已保存，需要重启 Docker 服务才能生效',
-    
+
     restart: '重启 Docker',
     restartConfirm: '重启 Docker 服务将影响所有运行中的容器，确定继续吗？',
     restartSuccess: 'Docker 服务重启成功',
     restarting: '正在重启...',
+  },
+
+  // Agent
+  agent: {
+    chatTitle: 'AI 智能运维助手',
+    connected: '已连接',
+    disconnected: '离线',
+    welcome: '我是您的智能运维助手，请问有什么可以帮您？',
+    checkStatus: '检查系统状态',
+    listContainers: '列出所有容器',
+    inputPlaceholder: '输入您的指令，例如：启动 redis 容器...',
+    send: '发送',
+    thinking: '思考中...',
+    settingsTitle: '智能体配置',
+    enable: '启用智能体',
+    apiUrl: 'API URL',
+    apiTip: '兼容 OpenAI 格式的 API 地址',
+    apiKey: 'API Key',
+    model: '模型名称',
+    save: '保存配置',
+    saveSuccess: '配置已保存',
+    error: '错误',
+    connectionError: '无法连接到智能体服务',
+    responseError: '获取响应失败',
+  },
+
+  // Settings Dialog
+  settings: {
+    pageSettings: '页面设置',
+    fontSize: '字体大小',
+    sidebarWidth: '侧边栏宽度',
+    themeColor: '主题色',
+    reset: '恢复默认',
+    confirmRefresh: '确认刷新',
   },
 }
