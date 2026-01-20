@@ -77,7 +77,7 @@
             :disabled="isThinking"
             size="small"
           />
-          <el-button type="primary" size="small" @click="sendMessage" :loading="isThinking">
+          <el-button type="primary" size="small" @click="sendMessage" :disabled="isThinking">
             <el-icon><Promotion /></el-icon>
           </el-button>
         </div>
@@ -118,10 +118,11 @@ const focusInput = () => {
   })
 }
 
-// Watch for window open to focus input
+// Watch for window open to focus input and scroll to bottom
 watch(isOpen, (val) => {
   if (val) {
     focusInput()
+    scrollToBottom()
   }
 })
 
@@ -265,9 +266,7 @@ const sendMessage = async () => {
         
         if (!started) {
           started = true
-          isThinking.value = false
-          // Refocus input when thinking stops
-          focusInput()
+          // Keep isThinking true until stream fully completes
           
           messages.value.push({ role: 'assistant', content: fullContent })
           assistantMsgIndex = messages.value.length - 1
@@ -308,6 +307,9 @@ const sendMessage = async () => {
       // Save assistant message to history
       saveMessage(finalMessage)
     }
+    // Stream complete - now enable input
+    isThinking.value = false
+    focusInput()
   } catch (error) {
     console.error('Chat error:', error)
     ElMessage.error(t('agent.connectionError'))
@@ -524,12 +526,14 @@ onMounted(() => {
 /* Tool Call Styling */
 .content-markdown :deep(blockquote) {
   margin: 8px 0;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-left: 4px solid var(--el-color-success);
   background: var(--el-fill-color-light);
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--el-text-color-primary);
-  opacity: 0.9;
+  font-size: 12px;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 .content-markdown :deep(blockquote strong) {
@@ -538,6 +542,14 @@ onMounted(() => {
 
 .content-markdown :deep(blockquote p) {
   margin: 0;
+}
+
+.content-markdown :deep(blockquote code) {
+  background: var(--el-fill-color-darker);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  word-break: break-all;
 }
 
 /* Scrollbar Styling */

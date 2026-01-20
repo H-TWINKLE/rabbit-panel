@@ -11,12 +11,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/volume"
 )
 
 // AgentConfig 智能体配置
@@ -137,7 +141,7 @@ func handleSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 
 // System Prompt with Tools Description
 const systemPrompt = `你是一个专业的 Rabbit Panel 运维助手。
-你的职责是协助用户管理服务器和 Docker 容器。
+你的职责是协助用户管理服务器、Docker 容器、镜像、网络、存储卷和 Compose 项目。
 
 **回复规范:**
 1. **结构化显示**: 尽量使用 Markdown 表格、列表和代码块来展示数据。
@@ -145,18 +149,53 @@ const systemPrompt = `你是一个专业的 Rabbit Panel 运维助手。
    - 正确示例: [[TOOL: start_container(abc12345)]]
    - 错误示例: [[TOOL: start_container(id="abc")]]
 3. **多步执行**: 你可以连续执行多个工具调用，但不要超过 3 步。
-4. **确认**: 在执行停止、重启或删除容器等关键操作前，请先征得用户确认。
-5. **专注目标**: 仅回答用户提出的问题，**不要进行未经请求的日志分析或故障诊断**。如果用户只让你列出容器，就只列出容器，不要输出额外的分析。
+4. **确认**: 在执行删除、停止等破坏性操作前，请先征得用户确认。
+5. **专注目标**: 仅回答用户提出的问题，不要进行未经请求的分析。
 6. **简洁专业**: 使用中文回复，保持精简。
 
-**可用工具:**
-1. list_containers(): 列出所有容器
-2. start_container(id): 启动容器
-3. stop_container(id): 停止容器
-4. restart_container(id): 重启容器
-5. get_container_logs(id): 获取最近 50 行日志
-6. inspect_container(id): 获取容器详细信息
-7. system_status(): 获取 CPU 和内存状态`
+**可用工具 (共 26 个):**
+
+**容器管理:**
+1. list_containers() - 列出所有容器
+2. start_container(id) - 启动已存在的容器
+3. stop_container(id) - 停止容器
+4. restart_container(id) - 重启容器
+5. get_container_logs(id) - 获取最近 50 行日志
+6. inspect_container(id) - 获取容器详细信息
+7. delete_container(id) - 删除容器 (需确认)
+8. run_container(image, name, options...) - 创建并启动容器
+   - 基础: run_container(redis:latest, my-redis)
+   - 端口: run_container(redis:latest, my-redis, 6379:6379)
+   - 多参数: run_container(nginx, web, 80:80, -e ENV=prod, -v /data:/app)
+
+**镜像管理:**
+9. list_images() - 列出所有镜像
+10. pull_image(name) - 拉取镜像 (如: nginx:latest)
+11. delete_image(id) - 删除镜像 (需确认)
+
+**网络管理:**
+12. list_networks() - 列出所有网络
+13. create_network(name, driver) - 创建网络 (driver: bridge/overlay)
+14. delete_network(id) - 删除网络 (需确认)
+15. inspect_network(id) - 查看网络详情
+
+**存储卷管理:**
+16. list_volumes() - 列出所有存储卷
+17. create_volume(name) - 创建存储卷
+18. delete_volume(name) - 删除存储卷 (需确认)
+
+**Docker Compose:**
+19. list_compose_projects() - 列出所有 Compose 项目
+20. compose_up(project) - 启动 Compose 项目
+21. compose_down(project) - 停止并移除项目 (需确认)
+22. compose_restart(project) - 重启项目
+23. compose_status(project) - 查看项目状态和容器
+
+**系统维护:**
+24. system_status() - 获取 CPU 和内存状态
+25. prune_containers() - 清理已停止的容器 (需确认)
+26. prune_images() - 清理未使用的镜像 (需确认)`
+
 
 // Chat Handler with Streaming
 func handleAgentChat(w http.ResponseWriter, r *http.Request) {
@@ -272,26 +311,43 @@ func streamLLM(w http.ResponseWriter, flusher http.Flusher, config AgentConfig, 
 		// Add assistant response to history for next possible step
 		messages = append(messages, ChatMessage{Role: "assistant", Content: responseText})
 
-		// Check for Tool Calls
+		// Check for Tool Calls - extract ALL tool calls from response
 		if strings.Contains(responseText, "[[TOOL:") {
-			parts := strings.Split(responseText, "[[TOOL:")
-			if len(parts) > 1 {
-				toolPart := parts[1]
-				endIdx := strings.Index(toolPart, "]]")
-				if endIdx != -1 {
-					toolCmd := strings.TrimSpace(toolPart[:endIdx])
-					
-					// Execute Tool
-					toolResult := executeTool(toolCmd)
-					
-					// Send Tool Output to Client with clear separation
-					displayOutput := fmt.Sprintf("\n\n---\n> 🛠️ **系统正在执行**: `[[TOOL: %s]]`\n\n%s\n\n---\n", toolCmd, toolResult)
-					sendSSE(w, flusher, displayOutput)
-					
-					// Feed back to LLM
-					messages = append(messages, ChatMessage{Role: "user", Content: fmt.Sprintf("[SYSTEM] 工具执行结果 (%s):\n%s\n请根据结果继续回答。", toolCmd, toolResult)})
-					continue
+			var toolResults strings.Builder
+			hasToolCalls := false
+			
+			// Find all [[TOOL: xxx]] patterns
+			remaining := responseText
+			for {
+				startIdx := strings.Index(remaining, "[[TOOL:")
+				if startIdx == -1 {
+					break
 				}
+				remaining = remaining[startIdx+7:] // Skip past "[[TOOL:"
+				endIdx := strings.Index(remaining, "]]")
+				if endIdx == -1 {
+					break
+				}
+				
+				toolCmd := strings.TrimSpace(remaining[:endIdx])
+				remaining = remaining[endIdx+2:] // Move past "]]"
+				
+				// Execute Tool
+				toolResult := executeTool(toolCmd)
+				hasToolCalls = true
+				
+				// Send Tool Output to Client
+				displayOutput := fmt.Sprintf("\n\n> 🛠️ **系统正在执行**: `%s`\n\n%s\n", toolCmd, toolResult)
+				sendSSE(w, flusher, displayOutput)
+				
+				// Collect results for feedback
+				toolResults.WriteString(fmt.Sprintf("工具 %s 执行结果: %s\n", toolCmd, toolResult))
+			}
+			
+			if hasToolCalls {
+				// Feed all results back to LLM in one message
+				messages = append(messages, ChatMessage{Role: "user", Content: fmt.Sprintf("[SYSTEM] 所有工具执行完成:\n%s\n如无需继续执行工具，请直接总结结果。", toolResults.String())})
+				continue
 			}
 		}
 		break
@@ -334,6 +390,7 @@ func executeTool(command string) string {
 	ctx := context.Background()
 
 	switch name {
+	// ========== Container Management ==========
 	case "list_containers":
 		containers, err := dockerClient.ContainerList(ctx, types.ContainerListOptions{All: true})
 		if err != nil {
@@ -355,19 +412,19 @@ func executeTool(command string) string {
 		if arg1 == "" { return "Missing container ID" }
 		err := dockerClient.ContainerStart(ctx, arg1, types.ContainerStartOptions{})
 		if err != nil { return fmt.Sprintf("Error starting: %v", err) }
-		return fmt.Sprintf("Container %s started.", arg1)
+		return fmt.Sprintf("✅ Container %s started.", arg1)
 
 	case "stop_container":
 		if arg1 == "" { return "Missing container ID" }
 		err := dockerClient.ContainerStop(ctx, arg1, container.StopOptions{})
 		if err != nil { return fmt.Sprintf("Error stopping: %v", err) }
-		return fmt.Sprintf("Container %s stopped.", arg1)
+		return fmt.Sprintf("✅ Container %s stopped.", arg1)
 
 	case "restart_container":
 		if arg1 == "" { return "Missing container ID" }
 		err := dockerClient.ContainerRestart(ctx, arg1, container.StopOptions{})
 		if err != nil { return fmt.Sprintf("Error restarting: %v", err) }
-		return fmt.Sprintf("Container %s restarted.", arg1)
+		return fmt.Sprintf("✅ Container %s restarted.", arg1)
 
 	case "get_container_logs":
 		if arg1 == "" { return "Missing container ID" }
@@ -376,7 +433,7 @@ func executeTool(command string) string {
 		if err != nil { return fmt.Sprintf("Error reading logs: %v", err) }
 		buf := new(bytes.Buffer)
 		io.Copy(buf, out)
-		return buf.String()
+		return "```\n" + buf.String() + "\n```"
 	
 	case "inspect_container":
 		if arg1 == "" { return "Missing container ID" }
@@ -385,10 +442,245 @@ func executeTool(command string) string {
 		return fmt.Sprintf("| 属性 | 值 |\n| --- | --- |\n| 名称 | %s |\n| 状态 | %s |\n| IP地址 | %s |\n| 镜像 | %s |", 
 			strings.TrimPrefix(info.Name, "/"), info.State.Status, info.NetworkSettings.IPAddress, info.Config.Image)
 
+	case "delete_container":
+		if arg1 == "" { return "Missing container ID" }
+		err := dockerClient.ContainerRemove(ctx, arg1, container.RemoveOptions{Force: true})
+		if err != nil { return fmt.Sprintf("Error deleting: %v", err) }
+		return fmt.Sprintf("✅ Container %s deleted.", arg1)
+
+	case "run_container":
+		// Flexible container creation using docker CLI
+		// Format: run_container(image, name, [options...])
+		// Options: -p port:port, -e VAR=val, -v /host:/container, --restart always
+		if arg1 == "" { return "Missing image name" }
+		
+		// Build docker run command
+		cmdArgs := []string{"run", "-d"}
+		
+		// Add container name if provided
+		if len(cleanArgs) > 1 && cleanArgs[1] != "" {
+			cmdArgs = append(cmdArgs, "--name", cleanArgs[1])
+		}
+		
+		// Process remaining args as docker options
+		for i := 2; i < len(cleanArgs); i++ {
+			opt := cleanArgs[i]
+			if strings.HasPrefix(opt, "-p") || strings.HasPrefix(opt, "-e") || 
+			   strings.HasPrefix(opt, "-v") || strings.HasPrefix(opt, "--restart") {
+				// Split option with value: "-p 8080:80" or "-p=8080:80"
+				if strings.Contains(opt, "=") {
+					parts := strings.SplitN(opt, "=", 2)
+					cmdArgs = append(cmdArgs, parts[0], parts[1])
+				} else if strings.Contains(opt, " ") {
+					parts := strings.SplitN(opt, " ", 2)
+					cmdArgs = append(cmdArgs, parts[0], parts[1])
+				} else {
+					// Direct value like "8080:80" for port
+					cmdArgs = append(cmdArgs, "-p", opt)
+				}
+			} else if strings.Contains(opt, ":") {
+				// Assume it's a port mapping like "6379:6379"
+				cmdArgs = append(cmdArgs, "-p", opt)
+			}
+		}
+		
+		// Add image name
+		cmdArgs = append(cmdArgs, arg1)
+		
+		// Execute docker run
+		cmd := exec.Command("docker", cmdArgs...)
+		output, err := cmd.CombinedOutput()
+		outputStr := strings.TrimSpace(string(output))
+		
+		if err != nil {
+			return fmt.Sprintf("❌ Error: %v\n%s", err, outputStr)
+		}
+		
+		// Get container ID (first 12 chars)
+		containerID := outputStr
+		if len(containerID) > 12 {
+			containerID = containerID[:12]
+		}
+		
+		displayName := containerID
+		if len(cleanArgs) > 1 && cleanArgs[1] != "" {
+			displayName = cleanArgs[1]
+		}
+		
+		return fmt.Sprintf("✅ Container %s created and started (ID: %s)", displayName, containerID)
+
+	// ========== Image Management ==========
+	case "list_images":
+		images, err := dockerClient.ImageList(ctx, types.ImageListOptions{})
+		if err != nil { return fmt.Sprintf("Error: %v", err) }
+		var sb strings.Builder
+		sb.WriteString("| ID | 名称 | 大小 |\n")
+		sb.WriteString("| --- | --- | --- |\n")
+		for _, img := range images {
+			name := "<none>"
+			if len(img.RepoTags) > 0 {
+				name = img.RepoTags[0]
+			}
+			size := fmt.Sprintf("%.1f MB", float64(img.Size)/1024/1024)
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", img.ID[7:19], name, size))
+		}
+		return sb.String()
+
+	case "pull_image":
+		if arg1 == "" { return "Missing image name" }
+		out, err := dockerClient.ImagePull(ctx, arg1, types.ImagePullOptions{})
+		if err != nil { return fmt.Sprintf("❌ Error pulling: %v", err) }
+		defer out.Close()
+		// Must consume the entire stream to ensure pull completes
+		_, copyErr := io.Copy(io.Discard, out)
+		if copyErr != nil { return fmt.Sprintf("❌ Error during pull: %v", copyErr) }
+		// Verify image actually exists
+		images, _ := dockerClient.ImageList(ctx, types.ImageListOptions{})
+		for _, img := range images {
+			for _, tag := range img.RepoTags {
+				if tag == arg1 || strings.HasPrefix(tag, arg1) {
+					return fmt.Sprintf("✅ Image %s pulled successfully (ID: %s)", arg1, img.ID[7:19])
+				}
+			}
+		}
+		return fmt.Sprintf("⚠️ Pull completed but image %s not found. Try: list_images() to check.", arg1)
+
+	case "delete_image":
+		if arg1 == "" { return "Missing image ID" }
+		_, err := dockerClient.ImageRemove(ctx, arg1, types.ImageRemoveOptions{Force: true})
+		if err != nil { return fmt.Sprintf("Error deleting: %v", err) }
+		return fmt.Sprintf("✅ Image %s deleted.", arg1)
+
+	// ========== Network Management ==========
+	case "list_networks":
+		networks, err := dockerClient.NetworkList(ctx, types.NetworkListOptions{})
+		if err != nil { return fmt.Sprintf("Error: %v", err) }
+		var sb strings.Builder
+		sb.WriteString("| ID | 名称 | 驱动 | 范围 |\n")
+		sb.WriteString("| --- | --- | --- | --- |\n")
+		for _, n := range networks {
+			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", n.ID[:12], n.Name, n.Driver, n.Scope))
+		}
+		return sb.String()
+
+	case "create_network":
+		if arg1 == "" { return "Missing network name" }
+		driver := "bridge"
+		if len(cleanArgs) > 1 {
+			driver = cleanArgs[1]
+		}
+		resp, err := dockerClient.NetworkCreate(ctx, arg1, types.NetworkCreate{Driver: driver})
+		if err != nil { return fmt.Sprintf("Error creating: %v", err) }
+		return fmt.Sprintf("✅ Network %s created (ID: %s)", arg1, resp.ID[:12])
+
+	case "delete_network":
+		if arg1 == "" { return "Missing network ID" }
+		err := dockerClient.NetworkRemove(ctx, arg1)
+		if err != nil { return fmt.Sprintf("Error deleting: %v", err) }
+		return fmt.Sprintf("✅ Network %s deleted.", arg1)
+
+	case "inspect_network":
+		if arg1 == "" { return "Missing network ID" }
+		info, err := dockerClient.NetworkInspect(ctx, arg1, types.NetworkInspectOptions{})
+		if err != nil { return fmt.Sprintf("Error inspecting: %v", err) }
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("**网络**: %s\n\n", info.Name))
+		sb.WriteString("| 属性 | 值 |\n| --- | --- |\n")
+		sb.WriteString(fmt.Sprintf("| ID | %s |\n", info.ID[:12]))
+		sb.WriteString(fmt.Sprintf("| 驱动 | %s |\n", info.Driver))
+		sb.WriteString(fmt.Sprintf("| 范围 | %s |\n", info.Scope))
+		if len(info.Containers) > 0 {
+			sb.WriteString(fmt.Sprintf("| 容器数 | %d |\n", len(info.Containers)))
+		}
+		return sb.String()
+
+	// ========== Volume Management ==========
+	case "list_volumes":
+		vols, err := dockerClient.VolumeList(ctx, volume.ListOptions{})
+		if err != nil { return fmt.Sprintf("Error: %v", err) }
+		var sb strings.Builder
+		sb.WriteString("| 名称 | 驱动 |\n")
+		sb.WriteString("| --- | --- |\n")
+		for _, v := range vols.Volumes {
+			sb.WriteString(fmt.Sprintf("| %s | %s |\n", v.Name, v.Driver))
+		}
+		return sb.String()
+
+	case "create_volume":
+		if arg1 == "" { return "Missing volume name" }
+		vol, err := dockerClient.VolumeCreate(ctx, volume.CreateOptions{Name: arg1})
+		if err != nil { return fmt.Sprintf("Error creating: %v", err) }
+		return fmt.Sprintf("✅ Volume %s created.", vol.Name)
+
+	case "delete_volume":
+		if arg1 == "" { return "Missing volume name" }
+		err := dockerClient.VolumeRemove(ctx, arg1, true)
+		if err != nil { return fmt.Sprintf("Error deleting: %v", err) }
+		return fmt.Sprintf("✅ Volume %s deleted.", arg1)
+
+	// ========== Docker Compose ==========
+	case "list_compose_projects":
+		files, err := os.ReadDir(composeBaseDir)
+		if err != nil { return fmt.Sprintf("Error reading compose dir: %v", err) }
+		var sb strings.Builder
+		sb.WriteString("| 项目名 | 状态 |\n")
+		sb.WriteString("| --- | --- |\n")
+		for _, f := range files {
+			if f.IsDir() {
+				status := getComposeProjectStatus(filepath.Join(composeBaseDir, f.Name()))
+				sb.WriteString(fmt.Sprintf("| %s | %s |\n", f.Name(), status))
+			}
+		}
+		return sb.String()
+
+	case "compose_up":
+		if arg1 == "" { return "Missing project name" }
+		projectDir := filepath.Join(composeBaseDir, arg1)
+		cmd := exec.Command("docker", "compose", "-f", filepath.Join(projectDir, "docker-compose.yml"), "up", "-d")
+		output, err := cmd.CombinedOutput()
+		if err != nil { return fmt.Sprintf("Error: %v\n%s", err, string(output)) }
+		return fmt.Sprintf("✅ Compose project %s started.\n```\n%s\n```", arg1, string(output))
+
+	case "compose_down":
+		if arg1 == "" { return "Missing project name" }
+		projectDir := filepath.Join(composeBaseDir, arg1)
+		cmd := exec.Command("docker", "compose", "-f", filepath.Join(projectDir, "docker-compose.yml"), "down")
+		output, err := cmd.CombinedOutput()
+		if err != nil { return fmt.Sprintf("Error: %v\n%s", err, string(output)) }
+		return fmt.Sprintf("✅ Compose project %s stopped and removed.\n```\n%s\n```", arg1, string(output))
+
+	case "compose_restart":
+		if arg1 == "" { return "Missing project name" }
+		projectDir := filepath.Join(composeBaseDir, arg1)
+		cmd := exec.Command("docker", "compose", "-f", filepath.Join(projectDir, "docker-compose.yml"), "restart")
+		output, err := cmd.CombinedOutput()
+		if err != nil { return fmt.Sprintf("Error: %v\n%s", err, string(output)) }
+		return fmt.Sprintf("✅ Compose project %s restarted.\n```\n%s\n```", arg1, string(output))
+
+	case "compose_status":
+		if arg1 == "" { return "Missing project name" }
+		projectDir := filepath.Join(composeBaseDir, arg1)
+		cmd := exec.Command("docker", "compose", "-f", filepath.Join(projectDir, "docker-compose.yml"), "ps", "--format", "table {{.Name}}\t{{.Status}}")
+		output, err := cmd.CombinedOutput()
+		if err != nil { return fmt.Sprintf("Error: %v\n%s", err, string(output)) }
+		return fmt.Sprintf("**项目 %s 状态:**\n```\n%s\n```", arg1, string(output))
+
+	// ========== System Maintenance ==========
 	case "system_status":
 		cpu, _ := getCPUUsage()
 		mem, _ := getMemoryUsage()
-		return fmt.Sprintf("| 指标 | 使用率 |\n| --- | --- |\n| CPU | %.1f%% |\n| 内存 | %.1f%% (%d MB) |", cpu, mem.Usage, mem.Used/1024)
+		disk, _ := getDiskUsage()
+		return fmt.Sprintf("| 指标 | 使用率 |\n| --- | --- |\n| CPU | %.1f%% |\n| 内存 | %.1f%% |\n| 磁盘 | %.1f%% |", cpu, mem.Usage, disk.Usage)
+
+	case "prune_containers":
+		report, err := dockerClient.ContainersPrune(ctx, filters.Args{})
+		if err != nil { return fmt.Sprintf("Error: %v", err) }
+		return fmt.Sprintf("✅ 已清理 %d 个容器，释放 %d bytes", len(report.ContainersDeleted), report.SpaceReclaimed)
+
+	case "prune_images":
+		report, err := dockerClient.ImagesPrune(ctx, filters.Args{})
+		if err != nil { return fmt.Sprintf("Error: %v", err) }
+		return fmt.Sprintf("✅ 已清理 %d 个镜像，释放 %.1f MB", len(report.ImagesDeleted), float64(report.SpaceReclaimed)/1024/1024)
 
 	default:
 		return "Unknown tool: " + name
