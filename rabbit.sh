@@ -190,7 +190,7 @@ check_binary() {
 # 设置环境变量
 set_env() {
     export MODE="${MODE:-master}"
-    export PORT="${PORT:-9999}"
+    export PORT="${PORT:-3958}"
     export HOST="${HOST:-0.0.0.0}"
 
     if [ -z "$JWT_SECRET" ]; then

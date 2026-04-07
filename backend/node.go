@@ -31,16 +31,16 @@ const (
 type NodeInfo struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
-	Address     string            `json:"address"`     // 节点地址 (IP:Port)
-	Mode        string            `json:"mode"`        // master 或 worker
-	Status      string            `json:"status"`      // online, offline, error
-	CPU         float64           `json:"cpu"`         // CPU 使用率
-	Memory      float64           `json:"memory"`      // 内存使用率
-	Disk        float64           `json:"disk"`        // 磁盘使用率
-	Containers  int               `json:"containers"`  // 容器数量
-	LastSeen    time.Time         `json:"-"`           // 内部使用
-	LastSeenStr string            `json:"last_seen"`   // 最后心跳时间（字符串格式）
-	Labels      map[string]string `json:"labels"`      // 节点标签
+	Address     string            `json:"address"`    // 节点地址 (IP:Port)
+	Mode        string            `json:"mode"`       // master 或 worker
+	Status      string            `json:"status"`     // online, offline, error
+	CPU         float64           `json:"cpu"`        // CPU 使用率
+	Memory      float64           `json:"memory"`     // 内存使用率
+	Disk        float64           `json:"disk"`       // 磁盘使用率
+	Containers  int               `json:"containers"` // 容器数量
+	LastSeen    time.Time         `json:"-"`          // 内部使用
+	LastSeenStr string            `json:"last_seen"`  // 最后心跳时间（字符串格式）
+	Labels      map[string]string `json:"labels"`     // 节点标签
 }
 
 // 节点管理器（Master 节点使用）
@@ -58,7 +58,7 @@ func initNodeManager(mode string) {
 		nodes: make(map[string]*NodeInfo),
 		mode:  mode,
 	}
-	
+
 	if mode == ModeMaster {
 		// Master 节点：启动节点管理服务
 		go nodeManager.startHealthCheck()
@@ -72,11 +72,11 @@ func initNodeManager(mode string) {
 func (nm *NodeManager) RegisterNode(node *NodeInfo) error {
 	nm.Lock()
 	defer nm.Unlock()
-	
+
 	node.LastSeen = time.Now()
 	node.Status = NodeStatusOnline
 	nm.nodes[node.ID] = node
-	
+
 	log.Printf("节点已注册: %s (%s) - %s", node.Name, node.ID, node.Address)
 	return nil
 }
@@ -85,7 +85,7 @@ func (nm *NodeManager) RegisterNode(node *NodeInfo) error {
 func (nm *NodeManager) UpdateNodeStatus(nodeID string, status string) {
 	nm.Lock()
 	defer nm.Unlock()
-	
+
 	if node, exists := nm.nodes[nodeID]; exists {
 		node.Status = status
 		node.LastSeen = time.Now()
@@ -96,7 +96,7 @@ func (nm *NodeManager) UpdateNodeStatus(nodeID string, status string) {
 func (nm *NodeManager) UpdateNodeResources(nodeID string, cpu, memory, disk float64, containers int) {
 	nm.Lock()
 	defer nm.Unlock()
-	
+
 	if node, exists := nm.nodes[nodeID]; exists {
 		node.CPU = cpu
 		node.Memory = memory
@@ -110,7 +110,7 @@ func (nm *NodeManager) UpdateNodeResources(nodeID string, cpu, memory, disk floa
 func (nm *NodeManager) GetAllNodes() []*NodeInfo {
 	nm.RLock()
 	defer nm.RUnlock()
-	
+
 	nodes := make([]*NodeInfo, 0, len(nm.nodes))
 	for _, node := range nm.nodes {
 		// 格式化 LastSeen 为字符串
@@ -127,7 +127,7 @@ func (nm *NodeManager) GetAllNodes() []*NodeInfo {
 func (nm *NodeManager) GetNode(nodeID string) (*NodeInfo, bool) {
 	nm.RLock()
 	defer nm.RUnlock()
-	
+
 	node, exists := nm.nodes[nodeID]
 	return node, exists
 }
@@ -136,15 +136,15 @@ func (nm *NodeManager) GetNode(nodeID string) (*NodeInfo, bool) {
 func (nm *NodeManager) SelectBestNode() (*NodeInfo, error) {
 	nm.RLock()
 	defer nm.RUnlock()
-	
+
 	var bestNode *NodeInfo
 	minLoad := 100.0
-	
+
 	for _, node := range nm.nodes {
 		if node.Status != NodeStatusOnline {
 			continue
 		}
-		
+
 		// 简单的负载计算：CPU + Memory
 		load := (node.CPU + node.Memory) / 2
 		if load < minLoad {
@@ -152,11 +152,11 @@ func (nm *NodeManager) SelectBestNode() (*NodeInfo, error) {
 			bestNode = node
 		}
 	}
-	
+
 	if bestNode == nil {
 		return nil, fmt.Errorf("没有可用的在线节点")
 	}
-	
+
 	return bestNode, nil
 }
 
@@ -164,7 +164,7 @@ func (nm *NodeManager) SelectBestNode() (*NodeInfo, error) {
 func (nm *NodeManager) startHealthCheck() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		nm.checkNodeHealth()
 	}
@@ -174,7 +174,7 @@ func (nm *NodeManager) startHealthCheck() {
 func (nm *NodeManager) checkNodeHealth() {
 	nm.Lock()
 	defer nm.Unlock()
-	
+
 	now := time.Now()
 	for _, node := range nm.nodes {
 		// 如果超过 30 秒没有心跳，标记为离线
@@ -195,7 +195,7 @@ func handleNodesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "当前节点不是 Master 模式", http.StatusBadRequest)
 		return
 	}
-	
+
 	nodes := nodeManager.GetAllNodes()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(nodes)
@@ -207,34 +207,34 @@ func handleNodeRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	if nodeManager == nil {
 		log.Printf("[Node] 注册失败: nodeManager 未初始化")
 		http.Error(w, "节点管理器未初始化", http.StatusBadRequest)
 		return
 	}
-	
+
 	if nodeManager.mode != ModeMaster {
 		log.Printf("[Node] 注册失败: 当前模式为 %s，不是 Master 模式", nodeManager.mode)
 		http.Error(w, "当前节点不是 Master 模式", http.StatusBadRequest)
 		return
 	}
-	
+
 	var node NodeInfo
 	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
 		log.Printf("[Node] 注册失败: 解析请求参数错误: %v", err)
 		http.Error(w, "请求参数错误: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	
+
 	log.Printf("[Node] 收到节点注册请求: ID=%s, Name=%s, Address=%s", node.ID, node.Name, node.Address)
-	
+
 	if err := nodeManager.RegisterNode(&node); err != nil {
 		log.Printf("[Node] 注册失败: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	log.Printf("[Node] 节点注册成功: %s (%s)", node.Name, node.ID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
@@ -246,12 +246,12 @@ func handleNodeHeartbeat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	if nodeManager == nil || nodeManager.mode != ModeMaster {
 		http.Error(w, "当前节点不是 Master 模式", http.StatusBadRequest)
 		return
 	}
-	
+
 	var req struct {
 		NodeID     string  `json:"node_id"`
 		CPU        float64 `json:"cpu"`
@@ -259,25 +259,25 @@ func handleNodeHeartbeat(w http.ResponseWriter, r *http.Request) {
 		Disk       float64 `json:"disk"`
 		Containers int     `json:"containers"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "请求参数错误", http.StatusBadRequest)
 		return
 	}
-	
+
 	// 检查节点是否存在
 	nodeManager.RLock()
 	_, exists := nodeManager.nodes[req.NodeID]
 	nodeManager.RUnlock()
-	
+
 	if !exists {
 		// 节点不存在，返回 404 让 Worker 重新注册
 		http.Error(w, "节点未注册", http.StatusNotFound)
 		return
 	}
-	
+
 	nodeManager.UpdateNodeResources(req.NodeID, req.CPU, req.Memory, req.Disk, req.Containers)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
@@ -286,7 +286,7 @@ func handleNodeHeartbeat(w http.ResponseWriter, r *http.Request) {
 func sendHeartbeatToMaster(masterURL string, nodeID string) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	// 获取节点信息用于重新注册
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
@@ -295,27 +295,27 @@ func sendHeartbeatToMaster(masterURL string, nodeID string) {
 	}
 	nodeAddress := getServerIP() + ":" + os.Getenv("PORT")
 	if os.Getenv("PORT") == "" {
-		nodeAddress = getServerIP() + ":9999"
+		nodeAddress = getServerIP() + ":3958"
 	}
-	
+
 	consecutiveFailures := 0
-	
+
 	for range ticker.C {
 		// 获取当前节点资源信息
 		cpu, _ := getCPUUsage()
 		memory, _ := getMemoryUsage()
 		disk, _ := getDiskUsage()
-		
+
 		// 获取容器数量
 		containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 		containerCount := 0
 		if err == nil {
 			containerCount = len(containers)
 		}
-		
+
 		// 生成节点认证 Token
 		nodeToken := generateNodeToken(nodeID)
-		
+
 		// 发送心跳
 		req := map[string]interface{}{
 			"node_id":    nodeID,
@@ -324,13 +324,13 @@ func sendHeartbeatToMaster(masterURL string, nodeID string) {
 			"disk":       disk,
 			"containers": containerCount,
 		}
-		
+
 		jsonData, _ := json.Marshal(req)
 		httpReq, _ := http.NewRequest("POST", masterURL+"/api/nodes/heartbeat", strings.NewReader(string(jsonData)))
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("X-Node-ID", nodeID)
 		httpReq.Header.Set("X-Node-Token", nodeToken)
-		
+
 		resp, err := http.DefaultClient.Do(httpReq)
 		if err != nil {
 			consecutiveFailures++
@@ -345,7 +345,7 @@ func sendHeartbeatToMaster(masterURL string, nodeID string) {
 			}
 			continue
 		}
-		
+
 		// 检查响应状态
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest {
 			// Master 不认识这个节点，需要重新注册
@@ -359,7 +359,7 @@ func sendHeartbeatToMaster(masterURL string, nodeID string) {
 			consecutiveFailures = 0
 			continue
 		}
-		
+
 		resp.Body.Close()
 		consecutiveFailures = 0
 	}
@@ -375,10 +375,10 @@ func registerToMaster(masterURL string, nodeID, nodeName, nodeAddress string) er
 		Status:  NodeStatusOnline,
 		Labels:  make(map[string]string),
 	}
-	
+
 	// 生成节点认证 Token
 	nodeToken := generateNodeToken(nodeID)
-	
+
 	jsonData, _ := json.Marshal(node)
 	httpReq, err := http.NewRequest("POST", masterURL+"/api/nodes/register", strings.NewReader(string(jsonData)))
 	if err != nil {
@@ -387,18 +387,17 @@ func registerToMaster(masterURL string, nodeID, nodeName, nodeAddress string) er
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Node-ID", nodeID)
 	httpReq.Header.Set("X-Node-Token", nodeToken)
-	
+
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("注册失败: %d", resp.StatusCode)
 	}
-	
+
 	log.Printf("已向 Master 注册: %s", masterURL)
 	return nil
 }
-

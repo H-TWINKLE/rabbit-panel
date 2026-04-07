@@ -21,7 +21,7 @@ services:
       - MODE=worker
       - PORT=10001
       # 必须修改: Master 节点地址
-      - MASTER_URL=http://master-ip:9999
+      - MASTER_URL=http://master-ip:3958
       # 必须修改: 当前节点名称（每个 Worker 必须唯一）
       - NODE_NAME=worker-1
       # 生产环境请修改以下密钥（Master 和 Worker 必须使用相同的密钥）

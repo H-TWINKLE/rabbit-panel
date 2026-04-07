@@ -46,7 +46,7 @@
 docker run -d \
   --name rabbit-panel \
   --restart unless-stopped \
-  -p 9999:9999 \
+  -p 3958:3958 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /root/rabbit-panel/compose_projects:/app/compose_projects \
   -v /root/rabbit-panel/data:/app/data \
@@ -93,7 +93,7 @@ chmod +x rabbit.sh
 # 启动
 ./rabbit.sh start
 
-# 访问 http://localhost:9999
+# 访问 http://localhost:3958
 ```
 
 > 交叉编译：`./rabbit.sh build arm64`（支持 amd64 | arm64 | armv7 | all）
@@ -119,27 +119,27 @@ chmod +x rabbit.sh
 ./rabbit.sh restart
 ```
 
-也可直接运行二进制（默认端口 9999）：
+也可直接运行二进制（默认端口 3958）：
 > 下载地址：
 > https://github.com/reisen7/rabbit-panel/releases
 ```bash
-# 运行面板 (默认端口 9999)
+# 运行面板 (默认端口 3958)
 ./rabbit-panel-linux-arm64
 
 # 或指定端口
 PORT=9090 ./rabbit-panel-linux-arm64
 
 # 或指定监听地址和端口
-HOST=0.0.0.0 PORT=9999 ./rabbit-panel-linux-arm64
+HOST=0.0.0.0 PORT=3958 ./rabbit-panel-linux-arm64
 ```
 
 ### 4. 访问面板
 
-- **本地访问**: `http://localhost:9999`
-- **外网访问**: `http://<服务器IP>:9999`
+- **本地访问**: `http://localhost:3958`
+- **外网访问**: `http://<服务器IP>:3958`
 - **默认账户**: `admin` / `admin`
 
-> 注意：首次登录必须修改密码。默认监听 `0.0.0.0:9999`，可外网访问。
+> 注意：首次登录必须修改密码。默认监听 `0.0.0.0:3958`，可外网访问。
 
 
 ## 多节点管理
@@ -173,12 +173,12 @@ docker compose -f docker-compose.worker.yml up -d
 
 **Master 节点：**
 ```bash
-MODE=master PORT=9999 ./rabbit-panel-linux-arm64
+MODE=master PORT=3958 ./rabbit-panel-linux-arm64
 ```
 
 **Worker 节点：**
 ```bash
-MASTER_URL=http://master-ip:9999 \
+MASTER_URL=http://master-ip:3958 \
 NODE_NAME=worker-1 \
 MODE=worker \
 PORT=10001 \
@@ -201,7 +201,7 @@ PORT=10001 \
 ### 环境变量配置
 
 - `MODE`：节点模式，`master` 或 `worker`，默认 `master`
-- `PORT`：服务端口，默认 `9999`
+- `PORT`：服务端口，默认 `3958`
 - `HOST`：绑定地址，默认 `0.0.0.0`
 - `JWT_SECRET`：用户认证密钥（生产环境必须设置）
 - `NODE_SECRET`：节点通信密钥（生产环境必须设置）
@@ -209,7 +209,7 @@ PORT=10001 \
 示例：
 
 ```bash
-MODE=master PORT=9999 HOST=0.0.0.0 \
+MODE=master PORT=3958 HOST=0.0.0.0 \
 JWT_SECRET=change-me NODE_SECRET=change-me \
 ./rabbit-panel-linux-arm64
 ```

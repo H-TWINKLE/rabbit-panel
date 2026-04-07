@@ -6,18 +6,18 @@ services:
     container_name: rabbit-panel
     restart: unless-stopped
     ports:
-      - "9999:9999"
+      - "3958:3958"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /root/rabbit-panel/compose_projects:/app/compose_projects
       - /root/rabbit-panel/data:/app/data
     environment:
       - TZ=Asia/Shanghai
-      - PORT=9999
+      - PORT=3958
       - JWT_SECRET=change-me-in-production
       - NODE_SECRET=change-me-in-production
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9999/api/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3958/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

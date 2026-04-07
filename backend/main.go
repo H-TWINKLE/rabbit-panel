@@ -1798,13 +1798,13 @@ func main() {
 		log.Fatalf("无法连接到 Docker: %v\n请确保 Docker 服务正在运行", err)
 	}
 
-	// 获取端口（默认 9999）
+	// 获取端口（默认 3958）
 	port := os.Getenv("PORT")
 	if port == "" {
 		if mode == ModeWorker {
 			port = "10001" // Worker 默认端口
 		} else {
-			port = "9999" // Master 默认端口
+			port = "3958" // Master 默认端口
 		}
 	}
 

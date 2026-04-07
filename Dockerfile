@@ -43,6 +43,6 @@ ENV TZ=Asia/Shanghai
 
 COPY --from=backend-builder /app/rabbit-panel .
 
-EXPOSE 9999
+EXPOSE 3958
 
 CMD ["./rabbit-panel"]
