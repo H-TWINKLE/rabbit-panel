@@ -1,6 +1,6 @@
 # Rabbit Panel ｜ 极致轻量AI智能容器运维面板
 
-一个极致轻量的 AI 智能 Docker 运维面板，面向 4GB 内存设备，支持 ARM64 / armv7l / x86_64，多节点集中管理，AI 智能运维，开箱即用。
+一个极致轻量的 AI 智能 Docker 运维面板，面向 4GB 内存设备，支持 ARM64 / armv7l / x86_64，多节点集中管理，AI 智能运维，开箱即用。默认端口3958（39舞宝）
 
 ## 特性
 
@@ -8,18 +8,48 @@
 - 🐳 **容器管理**：启动/停止/重启/删除，实时日志（SSE），终端访问，文件管理
 - 📦 **镜像管理**：查看、删除、构建镜像
 - 🌐 **网络管理**：创建/删除网络，查看网络详情和连接的容器
-- � **系存储卷管理**：创建/删除存储卷，批量清理未使用卷
-- � **仓库管理**：：管理 Docker 镜像仓库，支持测试连接
+- 💾 **存储卷管理**：创建/删除存储卷，批量清理未使用卷
+- 📦 **仓库管理**：管理 Docker 镜像仓库，支持测试连接
 - ⚙️ **Docker 配置**：在线管理 Docker 守护进程配置（镜像加速器、私有仓库、日志配置等）
 - 🧩 **Compose 管理**：在线创建/编辑 `docker-compose.yml`，一键 Up/Down/Restart/Pull/Logs
-- � ***系统监控**：CPU/内存/磁盘实时监控（5 秒刷新）
-- 🌐 **响应式设计**：PC/平板/手机良好体验
+- 📊 **系统监控**：CPU/内存/磁盘实时监控（5 秒刷新）
+- 📱 **响应式设计**：PC/平板/手机良好体验
 - 🔧 **零依赖**：单二进制，内置前端，无数据库，无额外安装
 - 🎯 **多节点管理**：Master/Worker 统一管理多台服务器
 - 🤖 **AI 运维助手**：集成 LLM 大模型，支持自然语言交互、多步自主运维任务执行
 - 🌍 **国际化**：支持中文/英文切换
 
-## 预览
+## 架构说明
+
+### 后端 (`backend/`)
+
+```
+├── main.go              # 入口，Gin 引擎启动
+├── config/              # 配置加载
+├── model/               # 数据模型
+├── repository/          # 数据访问层（Docker API、SQLite、文件操作）
+├── service/             # 业务逻辑层
+├── router/             # 路由注册和 HTTP Handler（Gin）
+├── middleware/          # 中间件（认证、日志）
+├── exec/                # 容器终端管理
+├── agent/              # AI Agent 提示词
+└── tool/               # 工具函数（系统监控等）
+```
+
+- **依赖注入**：所有服务通过 `App` 结构体注入，无全局变量
+- **Repository 模式**：Docker API、SQLite、文件操作均通过接口抽象
+- **单二进制**：前端资源编译时嵌入，无需单独部署
+
+### 前端 (`frontend/src`)
+
+- **Views**：页面级组件
+- **API**：后端 API 调用封装
+- **Stores**：Pinia 状态管理
+- **i18n**：中英文国际化
+
+### 前端资源嵌入
+
+前端构建产物输出至 `backend/dist/`，Go 编译时通过 `//go:embed dist` 嵌入二进制，无需单独部署前端。
 
 ![首页](doc/images/image.png)
 ![AI 智能运维](doc/images/image-6.png)
@@ -29,12 +59,20 @@
 ![Compose 管理](doc/images/image-3.png)
 ![网络管理](doc/images/image-4.png)
 ![docker 配置](doc/images/image-5.png)
+
+## 技术栈
+
+- **后端**：Go 1.25 + Gin Web Framework
+- **前端**：Vue 3 + TypeScript + Vite + Element Plus
+- **数据库**：SQLite（内置，无外部依赖）
+- **容器 API**：Docker Engine API v1.43+
+
 ## 环境要求
 
 - Docker 20.10+（已安装并运行，建议将用户加入 `docker` 组）
 - Linux（Armbian / Ubuntu / Debian）
 - 4GB+ 内存设备
-- Go 1.22+（仅用于本地编译）
+- Go 1.25+（仅用于本地编译）
 
 ## 快速开始
 
@@ -229,58 +267,6 @@ Master 和 Worker 节点之间的通信使用 HMAC-SHA256 认证机制。
 **生产环境必须设置节点密钥**:
 ```bash
 NODE_SECRET=your-secret-key-here ./rabbit-panel-linux-arm64
-```
-
-
-## 项目结构
-
-```
-rabbit-panel/
-├── backend/                 # Go 后端
-│   ├── main.go              # 主入口
-│   ├── auth.go              # 认证模块
-│   ├── node.go              # 节点管理模块
-│   ├── scheduler.go         # 容器调度模块
-│   ├── compose.go           # Compose 管理 API
-│   ├── container_exec.go    # 容器终端 WebSocket
-│   └── data/                # 数据存储
-├── frontend/                # Vue 3 前端
-│   ├── src/
-│   │   ├── api/             # API 接口
-│   │   │   ├── auth.ts
-│   │   │   ├── containers.ts
-│   │   │   ├── images.ts
-│   │   │   ├── networks.ts
-│   │   │   ├── volumes.ts
-│   │   │   ├── registry.ts
-│   │   │   ├── dockerConfig.ts
-│   │   │   ├── compose.ts
-│   │   │   ├── nodes.ts
-│   │   │   └── system.ts
-│   │   ├── views/           # 页面组件
-│   │   │   ├── Dashboard.vue
-│   │   │   ├── Containers.vue
-│   │   │   ├── Images.vue
-│   │   │   ├── Networks.vue
-│   │   │   ├── Volumes.vue
-│   │   │   ├── Registry.vue
-│   │   │   ├── DockerConfig.vue
-│   │   │   ├── Compose.vue
-│   │   │   ├── Nodes.vue
-│   │   │   └── Login.vue
-│   │   ├── stores/          # Pinia 状态管理
-│   │   ├── components/      # 可复用组件
-│   │   ├── composables/     # 组合式函数
-│   │   ├── locales/         # 国际化翻译
-│   │   ├── types/           # TypeScript 类型定义
-│   │   └── utils/           # 工具函数
-│   └── vite.config.ts       # Vite 配置
-├── docker-compose.deploy.yml    # Docker 部署配置
-├── docker-compose.master.yml    # Master 节点配置
-├── docker-compose.worker.yml    # Worker 节点配置
-├── Dockerfile               # Docker 镜像构建
-├── rabbit.sh                # 一键管理脚本
-└── README.md                # 说明文档
 ```
 
 ## 许可证

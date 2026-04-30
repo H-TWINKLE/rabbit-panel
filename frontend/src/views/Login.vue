@@ -36,6 +36,24 @@
           />
         </el-form-item>
 
+        <el-form-item prop="captcha" class="captcha-item">
+          <el-input
+            v-model="form.captcha"
+            placeholder="验证码"
+            size="large"
+            class="captcha-input"
+            @keyup.enter="handleLogin"
+          />
+          <img
+            v-if="captchaImage"
+            :src="captchaImage"
+            alt="验证码"
+            class="captcha-image"
+            @click="loadCaptcha"
+          />
+          <el-icon v-else class="captcha-loading" :size="36"><Loading /></el-icon>
+        </el-form-item>
+
         <el-form-item>
           <el-button
             type="primary"
@@ -55,21 +73,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { User, Lock, Loading } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
+const captchaImage = ref('')
+const captchaId = ref('')
 
 const form = reactive({
   username: '',
   password: '',
+  captcha: '',
 })
 
 const rules: FormRules = {
@@ -79,6 +101,19 @@ const rules: FormRules = {
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
   ],
+  captcha: [
+    { required: true, message: '请输入验证码', trigger: 'blur' },
+  ],
+}
+
+async function loadCaptcha() {
+  try {
+    const data = await authApi.getCaptcha()
+    captchaId.value = data.captcha_id
+    captchaImage.value = data.image
+  } catch {
+    ElMessage.error('加载验证码失败')
+  }
 }
 
 async function handleLogin() {
@@ -93,27 +128,31 @@ async function handleLogin() {
   loading.value = true
 
   try {
-    const success = await authStore.login(form.username, form.password)
+    const success = await authStore.login(form.username, form.password, form.captcha, captchaId.value)
 
     if (success) {
       ElMessage.success('登录成功')
-      
-      // Check if password change is required
-      if (authStore.needChangePassword) {
-        // Will be handled by the router or main layout
-        router.push('/')
-      } else {
-        router.push('/')
-      }
+      router.push('/')
     } else {
       ElMessage.error('用户名或密码错误')
+      // 刷新验证码
+      await loadCaptcha()
+      form.captcha = ''
     }
-  } catch {
-    ElMessage.error('登录失败，请稍后重试')
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error || '登录失败，请稍后重试'
+    ElMessage.error(msg)
+    // 刷新验证码
+    await loadCaptcha()
+    form.captcha = ''
   } finally {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  loadCaptcha()
+})
 </script>
 
 <style scoped>
@@ -194,6 +233,33 @@ async function handleLogin() {
 
 .login-form :deep(.el-input__prefix) {
   color: rgba(255, 255, 255, 0.8);
+}
+
+.captcha-item :deep(.el-form-item__content) {
+  display: flex;
+  gap: 10px;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-image {
+  height: 40px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: border-color 0.2s;
+}
+
+.captcha-image:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.captcha-loading {
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .login-button {

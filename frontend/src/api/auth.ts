@@ -1,13 +1,40 @@
 import request from '@/utils/request'
-import type { LoginRequest, LoginResponse, ChangePasswordRequest, UserInfo } from '@/types'
+import type { LoginResponse, ChangePasswordRequest, UserInfo } from '@/types'
 
 /**
  * Authentication API service
  * Handles login, logout, password change, and user info retrieval
  */
+/**
+ * Captcha response
+ */
+export interface CaptchaResponse {
+  captcha_id: string
+  image: string // base64 image data URL
+}
+
+/**
+ * Login request with captcha
+ */
+export interface LoginRequest {
+  username: string
+  password: string
+  captcha_id?: string
+  captcha?: string
+}
+
 export const authApi = {
   /**
-   * Login with username and password
+   * Get captcha image
+   * @returns Captcha ID and base64 image
+   */
+  async getCaptcha(): Promise<CaptchaResponse> {
+    const response = await request.get<CaptchaResponse>('/auth/captcha')
+    return response.data
+  },
+
+  /**
+   * Login with username and password and captcha
    * @param data Login credentials
    * @returns Login response with token and password change status
    */

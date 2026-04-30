@@ -191,6 +191,13 @@ export interface NodeInfo {
 export interface LoginRequest {
   username: string
   password: string
+  captcha_id?: string
+  captcha?: string
+}
+
+export interface CaptchaResponse {
+  captcha_id: string
+  image: string
 }
 
 export interface LoginResponse {

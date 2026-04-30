@@ -31,3 +31,5 @@ build-errors.log
 .air.toml.bak
 .kiro/
 compose_projects
+
+CLAUDE.md

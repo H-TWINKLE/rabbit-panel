@@ -19,27 +19,30 @@ export const useAuthStore = defineStore('auth', () => {
   // Actions
 
   /**
-   * Login with username and password
+   * Login with username, password and captcha
    * @param loginUsername User's username
    * @param password User's password
+   * @param captcha User's captcha input
+   * @param captchaId Captcha ID
    * @returns true if login successful
    */
-  async function login(loginUsername: string, password: string): Promise<boolean> {
-    try {
-      const response = await authApi.login({ username: loginUsername, password })
-      
-      // Store token
-      token.value = response.token
-      setToken(response.token)
-      
-      // Store user info
-      username.value = loginUsername
-      needChangePassword.value = response.need_change_password
-      
-      return true
-    } catch {
-      return false
-    }
+  async function login(loginUsername: string, password: string, captcha?: string, captchaId?: string): Promise<boolean> {
+    const response = await authApi.login({
+      username: loginUsername,
+      password,
+      captcha,
+      captcha_id: captchaId,
+    })
+
+    // Store token
+    token.value = response.token
+    setToken(response.token)
+
+    // Store user info
+    username.value = loginUsername
+    needChangePassword.value = response.need_change_password
+
+    return true
   }
 
   /**

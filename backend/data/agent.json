@@ -1,6 +1,0 @@
-{
-  "api_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  "api_key": "sk-d9447fedb5ee4ed982a5bb3f510503db",
-  "model": "deepseek-v3.2",
-  "enabled": true
-}
