@@ -1,6 +1,6 @@
 # 更新日志
 
-## Unreleased
+## v2.2.0 (2026-05-11)
 
 ### 更新系统
 - 新增版本信息注入：`Version`、`Commit`、`BuildTime`
