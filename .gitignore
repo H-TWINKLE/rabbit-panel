@@ -1,5 +1,6 @@
 # 编译输出
-dist/
+.dist
+backend/.dist/
 *.exe
 rabbit-panel
 rabbit-panel-*
