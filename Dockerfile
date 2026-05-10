@@ -1,17 +1,15 @@
 FROM node:20-alpine AS frontend-builder
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
 WORKDIR /app/frontend
 
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json frontend/package-lock.json ./
 
-RUN pnpm config set registry https://registry.npmmirror.com && \
-    pnpm install --frozen-lockfile
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm ci
 
 COPY frontend/ ./
 
-RUN pnpm run build
+RUN npm run build
 
 FROM golang:1.24-alpine AS backend-builder
 

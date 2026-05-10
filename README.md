@@ -15,7 +15,10 @@
 ![容器管理](.doc/images/image-1.png)
 ![镜像管理](.doc/images/image-2.png)
 ![Compose 管理](.doc/images/image-3.png)
-
+![网络管理](.doc/images/image-4.png)
+![配置管理](.doc/images/image-5.png)
+![LLM](.doc/images/image-6.png)
+![LLM](.doc/images/image-7.png)
 ## 环境要求
 
 - Linux
