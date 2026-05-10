@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
@@ -14,7 +14,12 @@ set "FRONTEND_DIR=frontend"
 set "BACKEND_DIR=backend"
 set "BUILD_LDFLAGS=-s -w"
 set "VERSION="
+set "COMMIT_HASH=unknown"
+set "BUILD_TIME_VALUE=unknown"
 set "SKIP_FRONTEND="
+
+for /f "delims=" %%i in ('git rev-parse --short HEAD 2^>nul') do set "COMMIT_HASH=%%i"
+for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString(\"yyyy-MM-ddTHH:mm:ssZ\")"') do set "BUILD_TIME_VALUE=%%i"
 
 :: Main logic
 if "%~1"=="" goto show_help
@@ -222,7 +227,7 @@ if "%VERSION%"=="" (
     set "OUTPUT_NAME=rabbit-panel-%B_SUFFIX%-%VERSION%"
 )
 
-set "OUTPUT_DIR=dist\%OUTPUT_NAME%-release"
+set "OUTPUT_DIR=.dist\\%OUTPUT_NAME%-release"
 set "OUTPUT_FILE=%OUTPUT_DIR%\%OUTPUT_NAME%%B_EXT%"
 
 if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
@@ -236,7 +241,15 @@ set "GOARCH=%B_GOARCH%"
 set "CGO_ENABLED=0"
 if not "%B_GOARM%"=="" set "GOARM=%B_GOARM%"
 
-go build -trimpath -ldflags="%BUILD_LDFLAGS%" -o "..\%OUTPUT_FILE%" .
+if "%VERSION%"=="" (
+    set "VERSION_VALUE=dev"
+) else (
+    set "VERSION_VALUE=%VERSION%"
+)
+
+set "LDFLAGS=%BUILD_LDFLAGS% -X main.Version=%VERSION_VALUE% -X main.Commit=%COMMIT_HASH% -X main.BuildTime=%BUILD_TIME_VALUE%"
+
+go build -trimpath -ldflags="%LDFLAGS%" -o "..\%OUTPUT_FILE%" .
 
 if errorlevel 1 (
     echo [ERROR] Build failed: %B_SUFFIX%
@@ -296,3 +309,4 @@ goto end
 
 :end
 endlocal
+

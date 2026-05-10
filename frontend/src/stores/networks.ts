@@ -71,8 +71,8 @@ export const useNetworkStore = defineStore('networks', () => {
           bVal = b.scope.toLowerCase()
           break
         case 'containers':
-          aVal = a.containers
-          bVal = b.containers
+          aVal = a.container_count
+          bVal = b.container_count
           break
         default:
           aVal = a.name.toLowerCase()

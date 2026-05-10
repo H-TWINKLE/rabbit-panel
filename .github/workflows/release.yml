@@ -1,0 +1,236 @@
+﻿name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v2.1.0'
+        required: true
+        default: 'v2.1.0'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: rabbit-panel
+  DOCKER_IMAGE: reisen7/rabbit-panel
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "tag_no_v=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Build Linux binaries
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+          COMMIT_HASH: ${{ github.sha }}
+          BUILD_TIME_VALUE: ${{ steps.version.outputs.build_time }}
+        run: |
+          chmod +x rabbit.sh
+          ./rabbit.sh build all --skip-frontend -v "${VERSION}"
+
+      - name: Generate checksums
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cd .dist
+          sha256sum \
+            rabbit-panel-linux-amd64-${TAG}-release/rabbit-panel-linux-amd64-${TAG} \
+            rabbit-panel-linux-arm64-${TAG}-release/rabbit-panel-linux-arm64-${TAG} \
+            rabbit-panel-linux-armv7-${TAG}-release/rabbit-panel-linux-armv7-${TAG} \
+            > sha256sums.txt
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            .dist/rabbit-panel-linux-amd64-${TAG}-release/rabbit-panel-linux-amd64-${TAG} \
+            .dist/rabbit-panel-linux-arm64-${TAG}-release/rabbit-panel-linux-arm64-${TAG} \
+            .dist/rabbit-panel-linux-armv7-${TAG}-release/rabbit-panel-linux-armv7-${TAG} \
+            .dist/sha256sums.txt \
+            --clobber
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          no-cache: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.tag }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.version.outputs.build_time }}
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.tag }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+      - name: Fetch release payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          mkdir -p public
+          gh api "repos/${{ github.repository }}/releases/tags/${TAG}" > /tmp/release.json
+          cat /tmp/release.json
+
+      - name: Generate latest.json
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          TAG_NO_V: ${{ steps.version.outputs.tag_no_v }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = json.loads(Path("/tmp/release.json").read_text(encoding="utf-8"))
+          tag = os.environ["TAG"]
+          tag_no_v = os.environ["TAG_NO_V"]
+
+          assets = {}
+          sha256 = {}
+          for item in release.get("assets", []):
+              name = item.get("name", "")
+              download = item.get("browser_download_url", "")
+              if not download:
+                  continue
+              if "linux-amd64" in name:
+                  assets["linux-amd64"] = download
+              elif "linux-arm64" in name:
+                  assets["linux-arm64"] = download
+              elif "linux-armv7" in name:
+                  assets["linux-armv7"] = download
+              elif name == "sha256sums.txt":
+                  assets["sha256sums"] = download
+
+          sha_file = Path(".dist/sha256sums.txt")
+          if sha_file.exists():
+              for line in sha_file.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line:
+                      continue
+                  checksum, filename = line.split(None, 1)
+                  filename = filename.strip().split("/")[-1]
+                  if "linux-amd64" in filename:
+                      sha256["linux-amd64"] = checksum
+                  elif "linux-arm64" in filename:
+                      sha256["linux-arm64"] = checksum
+                  elif "linux-armv7" in filename:
+                      sha256["linux-armv7"] = checksum
+
+          fallback_assets = {
+              "linux-amd64": f"https://github.com/reisen7/rabbit-panel/releases/download/{tag}/rabbit-panel-linux-amd64-{tag}",
+              "linux-arm64": f"https://github.com/reisen7/rabbit-panel/releases/download/{tag}/rabbit-panel-linux-arm64-{tag}",
+              "linux-armv7": f"https://github.com/reisen7/rabbit-panel/releases/download/{tag}/rabbit-panel-linux-armv7-{tag}",
+          }
+          for key, value in fallback_assets.items():
+              assets.setdefault(key, value)
+
+          data = {
+              "version": tag,
+              "version_number": tag_no_v,
+              "release_url": release.get("html_url") or f"https://github.com/reisen7/rabbit-panel/releases/tag/{tag}",
+              "release_name": release.get("name") or tag,
+              "release_notes": release.get("body") or "",
+              "published_at": release.get("published_at") or "",
+              "docker_image": "reisen7/rabbit-panel",
+              "docker_tag": "latest",
+              "docker_tags": [tag, tag_no_v, "latest"],
+              "assets": assets,
+              "sha256": sha256,
+          }
+
+          Path("public").mkdir(parents=True, exist_ok=True)
+          Path("public/latest.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          Path("public/index.html").write_text(
+              "<!doctype html><html><head><meta charset='utf-8'><title>Rabbit Panel Update Manifest</title></head><body><a href='./latest.json'>latest.json</a></body></html>\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(data, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

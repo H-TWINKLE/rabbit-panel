@@ -15,6 +15,10 @@ RUN pnpm run build
 
 FROM golang:1.24-alpine AS backend-builder
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
 WORKDIR /app
 
 COPY backend/go.mod backend/go.sum ./
@@ -24,9 +28,9 @@ RUN go env -w GOPROXY=https://goproxy.cn,direct && \
 
 COPY backend/ ./
 
-COPY --from=frontend-builder /app/backend/dist ./dist
+COPY --from=frontend-builder /app/backend/.dist ./.dist
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o rabbit-panel .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildTime=${BUILD_TIME}'" -o rabbit-panel .
 
 FROM alpine:latest
 

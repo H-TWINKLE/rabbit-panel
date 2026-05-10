@@ -80,6 +80,23 @@
         class-name="hidden-md-and-down"
       />
       <el-table-column
+        prop="used_by_count"
+        label="Usage"
+        width="140"
+        align="center"
+      >
+        <template #default="{ row }">
+          <el-tooltip v-if="row.used_by && row.used_by.length > 0" :content="row.used_by.join(', ')" placement="top">
+            <el-tag type="success" size="small">
+              In Use ({{ row.used_by_count }})
+            </el-tag>
+          </el-tooltip>
+          <el-tag v-else type="info" size="small">
+            Unused
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column
         :label="t('common.actions')"
         width="120"
         fixed="right"

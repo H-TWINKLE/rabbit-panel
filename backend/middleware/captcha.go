@@ -141,8 +141,8 @@ func (m *CaptchaManager) Verify(captchaID, userInput string) bool {
 
 // renderImage 渲染验证码图片
 func (m *CaptchaManager) renderImage(code string) (*image.RGBA, error) {
-	width := m.length*40 + 20
-	height := 80
+	width := m.length*52 + 32
+	height := 96
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
@@ -193,11 +193,11 @@ func (m *CaptchaManager) renderImage(code string) (*image.RGBA, error) {
 		}
 
 		// 随机位置
-		x := 15 + i*35 + randInt(-5, 5)
-		y := 25 + randInt(0, 15)
+		x := 18 + i*44 + randInt(-4, 6)
+		y := 18 + randInt(0, 14)
 
 		// 随机旋转角度（简化处理，不实际旋转）
-		fontSize := float64(randInt(28, 36))
+		fontSize := float64(randInt(36, 44))
 		m.drawChar(img, x, y, ch, charColor, fontSize)
 	}
 
@@ -210,7 +210,10 @@ func (m *CaptchaManager) drawChar(img *image.RGBA, x, y int, ch rune, c color.RG
 	patterns := getCharPattern(ch)
 
 	// 基础点大小
-	dotSize := int(fontSize / 14)
+	dotSize := int(fontSize / 12)
+	if dotSize < 2 {
+		dotSize = 2
+	}
 
 	for py := 0; py < 7; py++ {
 		for px := 0; px < 5; px++ {

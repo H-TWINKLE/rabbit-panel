@@ -1,95 +1,69 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  Bell,
+  Box,
+  Connection,
+  Cpu,
+  Expand,
+  Files,
+  Fold,
+  FolderOpened,
   Menu,
   Monitor,
-  Box,
-  Picture,
-  Connection,
-  Files,
-  Cpu,
-  User,
-  SwitchButton,
   Moon,
-  Sunny,
-  Fold,
-  Expand,
-  FolderOpened,
   OfficeBuilding,
-  Setting,
+  Picture,
   Service,
+  Setting,
+  Sunny,
+  SwitchButton,
+  User,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
+import { useUpdateStore } from '@/stores/update'
 import SystemMonitor from '@/components/common/SystemMonitor.vue'
 import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
 import SettingsDialog from '@/components/common/SettingsDialog.vue'
 import AgentChatFloat from '@/components/common/AgentChatFloat.vue'
+import UpdateDialog from '@/components/common/UpdateDialog.vue'
+import mikuLight from '@/assets/miku-light.svg'
+import mikuDark from '@/assets/miku-dark.svg'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const updateStore = useUpdateStore()
 const { theme, toggleTheme } = useTheme()
 const { language, t, setLanguage } = useI18n()
 
-// Logo based on theme
-import mikuLight from '@/assets/miku-light.svg'
-import mikuDark from '@/assets/miku-dark.svg'
 const logoSrc = computed(() => theme.value === 'dark' ? mikuDark : mikuLight)
-
-// Responsive state
 const windowWidth = ref(window.innerWidth)
 const isMobile = computed(() => windowWidth.value < 768)
-
-function handleResize() {
-  windowWidth.value = window.innerWidth
-  // Close drawer when resizing to desktop
-  if (!isMobile.value) {
-    drawerVisible.value = false
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-})
-
-// Sidebar collapse state (desktop)
 const isCollapse = ref(false)
-
-// Mobile drawer state
 const drawerVisible = ref(false)
-
-// Password dialog
 const showPasswordDialog = ref(false)
+const showSettingsDialog = ref(false)
+const showUpdateDialog = ref(false)
+const isUpdating = computed(() => updateStore.taskStatus?.status === 'running')
+const updateProgressText = computed(() => {
+  if (!isUpdating.value) return ''
+  if (!updateStore.taskStatus?.progress_known) return '...'
+  return `${updateStore.taskStatus?.progress ?? 0}%`
+})
+const showUpdateDot = computed(() => updateStore.shouldShowIndicator && !isUpdating.value)
 
-// Current theme icon
 const themeIcon = computed(() => theme.value === 'dark' ? Sunny : Moon)
 const themeTooltip = computed(() => theme.value === 'dark' ? t('header.lightMode') : t('header.darkMode'))
 
-// Language options
 const languageOptions = [
   { label: '简体中文', value: 'zh-CN' as const },
   { label: 'English', value: 'en-US' as const },
 ]
 
-// Navigation menu items
-// Settings dialog state
-const showSettingsDialog = ref(false)
-
-function handleOpenSettings() {
-  showSettingsDialog.value = true
-  if (isMobile.value) {
-    drawerVisible.value = false
-  }
-}
-
-// Navigation menu items (Agent moved to floating widget)
 const menuItems = computed(() => [
   { index: '/', icon: Monitor, title: t('sideNav.dashboard') },
   { index: '/containers', icon: Box, title: t('sideNav.containers') },
@@ -103,45 +77,41 @@ const menuItems = computed(() => [
   { index: '/settings/agent', icon: Service, title: t('sideNav.agentSettings') },
 ])
 
-// Handle menu select
+function handleResize() {
+  windowWidth.value = window.innerWidth
+  if (!isMobile.value) {
+    drawerVisible.value = false
+  }
+}
+
 function handleMenuSelect(index: string) {
   router.push(index)
-  // Close drawer on mobile after selection
   if (isMobile.value) {
     drawerVisible.value = false
   }
 }
 
-// Handle logout
 async function handleLogout() {
   try {
-    await ElMessageBox.confirm(
-      t('auth.logout') + '?',
-      t('common.confirm'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-      }
-    )
-    
+    await ElMessageBox.confirm(`${t('auth.logout')}?`, t('common.confirm'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    })
     await authStore.logout()
     ElMessage.success(t('auth.logoutSuccess'))
     router.push('/login')
   } catch {
-    // User cancelled
+    // ignore cancel
   }
 }
 
-// Handle language change
 function handleLanguageChange(lang: 'zh-CN' | 'en-US') {
   setLanguage(lang)
 }
 
-// Handle password change
 function handleChangePassword() {
   showPasswordDialog.value = true
-  // Close drawer on mobile
   if (isMobile.value) {
     drawerVisible.value = false
   }
@@ -152,87 +122,74 @@ function handlePasswordChangeSuccess() {
   ElMessage.success(t('auth.passwordChanged'))
 }
 
-// Open GitHub repository
+function handleOpenSettings() {
+  showSettingsDialog.value = true
+  if (isMobile.value) {
+    drawerVisible.value = false
+  }
+}
+
 function openGitHub() {
   window.open('https://github.com/reisen7/rabbit-panel', '_blank')
 }
 
-// Toggle mobile drawer
 function toggleDrawer() {
   drawerVisible.value = !drawerVisible.value
 }
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
+})
 </script>
 
 <template>
   <el-container class="main-layout">
-    <!-- Desktop Sidebar -->
     <el-aside v-if="!isMobile" :width="isCollapse ? '64px' : '200px'" class="main-sidebar">
       <div class="sidebar-header">
         <img :src="logoSrc" alt="Logo" class="logo" />
         <span v-show="!isCollapse" class="logo-text">Rabbit Panel</span>
       </div>
-      
-      <el-menu
-        :default-active="$route.path"
-        :collapse="isCollapse"
-        :collapse-transition="false"
-        class="sidebar-menu"
-        @select="handleMenuSelect"
-      >
-        <el-menu-item
-          v-for="item in menuItems"
-          :key="item.index"
-          :index="item.index"
-        >
+
+      <el-menu :default-active="$route.path" :collapse="isCollapse" :collapse-transition="false" class="sidebar-menu" @select="handleMenuSelect">
+        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
           <el-icon><component :is="item.icon" /></el-icon>
           <template #title>{{ item.title }}</template>
         </el-menu-item>
       </el-menu>
-      
-      <!-- Collapse button -->
+
       <div class="collapse-btn" @click="isCollapse = !isCollapse">
-        <el-icon :size="20">
-          <component :is="isCollapse ? Expand : Fold" />
-        </el-icon>
+        <el-icon :size="20"><component :is="isCollapse ? Expand : Fold" /></el-icon>
       </div>
     </el-aside>
 
-    <!-- Mobile Drawer -->
-    <el-drawer
-      v-model="drawerVisible"
-      direction="ltr"
-      :size="280"
-      :with-header="false"
-      class="mobile-drawer"
-    >
+    <el-drawer v-model="drawerVisible" direction="ltr" :size="280" :with-header="false" class="mobile-drawer">
       <div class="drawer-header">
         <img :src="logoSrc" alt="Logo" class="logo" />
         <span class="logo-text">Rabbit Panel</span>
       </div>
-      
-      <el-menu
-        :default-active="$route.path"
-        class="drawer-menu"
-        @select="handleMenuSelect"
-      >
-        <el-menu-item
-          v-for="item in menuItems"
-          :key="item.index"
-          :index="item.index"
-        >
+
+      <el-menu :default-active="$route.path" class="drawer-menu" @select="handleMenuSelect">
+        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.title }}</span>
         </el-menu-item>
       </el-menu>
-      
-      <!-- Drawer footer with user actions -->
+
       <div class="drawer-footer">
         <div class="drawer-user-info">
           <el-avatar :size="40" :icon="User" />
           <span class="drawer-username">{{ authStore.username }}</span>
         </div>
-        
+
         <div class="drawer-actions">
+          <el-button text @click="showUpdateDialog = true">
+            <el-icon><Bell /></el-icon>
+            {{ t('update.title') }}
+          </el-button>
           <el-button text @click="handleChangePassword">
             <el-icon><SwitchButton /></el-icon>
             {{ t('header.changePassword') }}
@@ -246,21 +203,16 @@ function toggleDrawer() {
     </el-drawer>
 
     <el-container>
-      <!-- Header -->
       <el-header class="main-header">
         <div class="header-left">
-          <!-- Mobile menu button -->
-          <el-button
-            v-if="isMobile"
-            :icon="Menu"
-            class="mobile-menu-btn"
-            @click="toggleDrawer"
-          />
+          <el-button v-if="isMobile" :icon="Menu" class="mobile-menu-btn" @click="toggleDrawer" />
           <SystemMonitor />
+          <el-tag size="small" effect="plain" class="version-tag">
+            {{ updateStore.info?.current_version || 'dev' }}
+          </el-tag>
         </div>
-        
+
         <div class="header-right">
-          <!-- GitHub link -->
           <el-tooltip content="GitHub" placement="bottom">
             <el-button circle @click="openGitHub">
               <svg class="github-icon" viewBox="0 0 16 16" width="18" height="18" fill="currentColor">
@@ -268,36 +220,30 @@ function toggleDrawer() {
               </svg>
             </el-button>
           </el-tooltip>
-          
-          <!-- Theme toggle -->
-          <el-tooltip :content="themeTooltip" placement="bottom">
-            <el-button
-              :icon="themeIcon"
-              circle
-              @click="toggleTheme"
-            />
+
+          <el-tooltip :content="t('update.title')" placement="bottom">
+            <el-badge :is-dot="showUpdateDot" :value="updateProgressText" :hidden="!updateProgressText">
+              <el-button :icon="Bell" circle :class="{ 'updating-button': isUpdating }" @click="showUpdateDialog = true" />
+            </el-badge>
           </el-tooltip>
-          
-          <!-- Language selector -->
+
+          <el-tooltip :content="themeTooltip" placement="bottom">
+            <el-button :icon="themeIcon" circle @click="toggleTheme" />
+          </el-tooltip>
+
           <el-dropdown @command="handleLanguageChange">
             <el-button circle>
               <span class="lang-icon">{{ language === 'zh-CN' ? '中' : 'En' }}</span>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="opt in languageOptions"
-                  :key="opt.value"
-                  :command="opt.value"
-                  :class="{ 'is-active': language === opt.value }"
-                >
+                <el-dropdown-item v-for="opt in languageOptions" :key="opt.value" :command="opt.value" :class="{ 'is-active': language === opt.value }">
                   {{ opt.label }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          
-          <!-- User dropdown (desktop only) -->
+
           <el-dropdown v-if="!isMobile">
             <div class="user-info">
               <el-avatar :size="32" :icon="User" />
@@ -305,6 +251,10 @@ function toggleDrawer() {
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="showUpdateDialog = true">
+                  <el-icon><Bell /></el-icon>
+                  {{ t('update.title') }}
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleOpenSettings">
                   <el-icon><Setting /></el-icon>
                   {{ t('settings.pageSettings') }}
@@ -323,23 +273,15 @@ function toggleDrawer() {
         </div>
       </el-header>
 
-      <!-- Main content -->
       <el-main class="main-content">
         <router-view />
       </el-main>
     </el-container>
   </el-container>
-  
-  <!-- Password change dialog -->
-  <ChangePasswordDialog
-    v-model="showPasswordDialog"
-    @success="handlePasswordChangeSuccess"
-  />
-  
-  <!-- Settings dialog -->
+
+  <ChangePasswordDialog v-model="showPasswordDialog" @success="handlePasswordChangeSuccess" />
   <SettingsDialog v-model="showSettingsDialog" />
-  
-  <!-- Floating AI Chat -->
+  <UpdateDialog v-model="showUpdateDialog" />
   <AgentChatFloat />
 </template>
 
@@ -421,6 +363,21 @@ function toggleDrawer() {
   gap: 12px;
 }
 
+.version-tag {
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.updating-button {
+  color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.25) inset;
+}
+
+:deep(.el-badge__content.is-fixed) {
+  top: 8px;
+  right: 8px;
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -465,18 +422,15 @@ function toggleDrawer() {
   padding: 20px;
 }
 
-/* Active language item */
 :deep(.el-dropdown-menu__item.is-active) {
   color: var(--el-color-primary);
   background-color: var(--el-color-primary-light-9);
 }
 
-/* Mobile menu button */
 .mobile-menu-btn {
   margin-right: 8px;
 }
 
-/* Mobile Drawer Styles */
 .mobile-drawer :deep(.el-drawer__body) {
   padding: 0;
   display: flex;
@@ -539,16 +493,15 @@ function toggleDrawer() {
   width: 100%;
 }
 
-/* Mobile responsive styles */
 @media (max-width: 767px) {
   .main-header {
     padding: 0 12px;
   }
-  
+
   .main-content {
     padding: 12px;
   }
-  
+
   .header-right {
     gap: 8px;
   }

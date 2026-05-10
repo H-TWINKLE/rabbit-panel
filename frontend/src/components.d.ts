@@ -27,6 +27,7 @@ declare module 'vue' {
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']
+    ElBadge: typeof import('element-plus/es')['ElBadge']
     ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
     ElBreadcrumbItem: typeof import('element-plus/es')['ElBreadcrumbItem']
     ElButton: typeof import('element-plus/es')['ElButton']
@@ -83,6 +84,8 @@ declare module 'vue' {
     SettingsDialog: typeof import('./components/common/SettingsDialog.vue')['default']
     SettingsFloat: typeof import('./components/common/SettingsFloat.vue')['default']
     SystemMonitor: typeof import('./components/common/SystemMonitor.vue')['default']
+    UpdateBanner: typeof import('./components/common/UpdateBanner.vue')['default']
+    UpdateDialog: typeof import('./components/common/UpdateDialog.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

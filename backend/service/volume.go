@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"strings"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/volume"
 
 	"rabbit-panel/model"
@@ -26,16 +29,26 @@ func (s *VolumeService) ListVolumes(ctx context.Context) ([]model.VolumeInfo, er
 		return nil, err
 	}
 
+	containers, err := s.dockerRepo.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	usageMap := buildVolumeUsage(containers)
+
 	result := make([]model.VolumeInfo, 0, len(resp.Volumes))
 	for _, v := range resp.Volumes {
+		usedBy := append([]string(nil), usageMap[v.Name]...)
 		result = append(result, model.VolumeInfo{
-			Name:       v.Name,
-			Driver:     v.Driver,
-			Mountpoint: v.Mountpoint,
-			Created:    v.CreatedAt,
-			Scope:      v.Scope,
-			Labels:     v.Labels,
-			Options:    v.Options,
+			Name:           v.Name,
+			Driver:         v.Driver,
+			Mountpoint:     v.Mountpoint,
+			Created:        v.CreatedAt,
+			Scope:          v.Scope,
+			Labels:         v.Labels,
+			Options:        v.Options,
+			Containers:     usedBy,
+			ContainerCount: len(usedBy),
+			InUse:          len(usedBy) > 0,
 		})
 	}
 	return result, nil
@@ -65,4 +78,20 @@ func (s *VolumeService) PruneVolumes(ctx context.Context) (*model.VolumePruneRes
 		VolumesDeleted: []string{},
 		SpaceReclaimed: 0,
 	}, nil
+}
+
+func buildVolumeUsage(containers []types.Container) map[string][]string {
+	usageMap := make(map[string][]string)
+	for _, c := range containers {
+		containerName := c.ID
+		if len(c.Names) > 0 {
+			containerName = strings.TrimPrefix(c.Names[0], "/")
+		}
+		for _, mount := range c.Mounts {
+			if mount.Type == "volume" && mount.Name != "" {
+				usageMap[mount.Name] = append(usageMap[mount.Name], containerName)
+			}
+		}
+	}
+	return usageMap
 }

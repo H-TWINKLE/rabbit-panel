@@ -2,12 +2,14 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api/auth'
 import { getToken, setToken, removeToken } from '@/utils/request'
+import { useUpdateStore } from '@/stores/update'
 
 /**
  * Authentication store
  * Manages user authentication state including token, username, and password change requirement
  */
 export const useAuthStore = defineStore('auth', () => {
+  const updateStore = useUpdateStore()
   // State
   const token = ref<string | null>(getToken())
   const username = ref<string | null>(null)
@@ -60,6 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
       username.value = null
       needChangePassword.value = false
       removeToken()
+      updateStore.resetAllState()
     }
   }
 
@@ -105,6 +108,7 @@ export const useAuthStore = defineStore('auth', () => {
       username.value = null
       needChangePassword.value = false
       removeToken()
+      updateStore.resetAllState()
       return false
     }
   }

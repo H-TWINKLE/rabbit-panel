@@ -51,6 +51,8 @@ func (s *NetworkService) ListNetworks(ctx context.Context) ([]model.NetworkInfo,
 				info.Containers = append(info.Containers, id[:12])
 			}
 		}
+		info.ContainerCount = len(info.Containers)
+		info.InUse = info.ContainerCount > 0
 
 		result = append(result, info)
 	}

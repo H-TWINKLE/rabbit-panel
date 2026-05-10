@@ -16,6 +16,11 @@ services:
       - PORT=3958
       - JWT_SECRET=change-me-in-production
       - NODE_SECRET=change-me-in-production
+      - RABBIT_DEPLOY_MODE=docker
+      - RABBIT_IMAGE=reisen7/rabbit-panel
+      - RABBIT_IMAGE_TAG=latest
+      - RABBIT_HOST_PROJECT_DIR=/root/rabbit-panel
+      - RABBIT_COMPOSE_FILE=docker-compose.deploy.yml
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3958/api/health"]
       interval: 30s

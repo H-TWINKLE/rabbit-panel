@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 
 	"rabbit-panel/model"
@@ -37,7 +39,13 @@ func (s *ImageService) ListImages(ctx context.Context) ([]model.ImageInfo, error
 		return nil, err
 	}
 
-	result := s.convertImages(images)
+	containers, err := s.dockerRepo.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+
+	usageMap := buildImageUsage(containers)
+	result := s.convertImages(images, usageMap)
 	s.cacheRepo.SetImages(result)
 	return result, nil
 }
@@ -56,7 +64,7 @@ func (s *ImageService) RemoveImage(ctx context.Context, id string, force bool) e
 // }
 
 // convertImages 转换 Docker 镜像类型到模型
-func (s *ImageService) convertImages(images []image.Summary) []model.ImageInfo {
+func (s *ImageService) convertImages(images []image.Summary, usageMap map[string][]string) []model.ImageInfo {
 	result := make([]model.ImageInfo, 0, len(images))
 	for _, img := range images {
 		// 提取标签
@@ -77,15 +85,54 @@ func (s *ImageService) convertImages(images []image.Summary) []model.ImageInfo {
 		// 格式化大小
 		size := formatSize(img.Size)
 
+		shortID := img.ID
+		if strings.HasPrefix(shortID, "sha256:") {
+			shortID = shortID[len("sha256:"):]
+		}
+		if len(shortID) > 12 {
+			shortID = shortID[:12]
+		}
+
+		usedBy := append([]string(nil), usageMap[img.ID]...)
+		if len(usedBy) == 0 {
+			usedBy = append([]string(nil), usageMap[shortID]...)
+		}
+
 		result = append(result, model.ImageInfo{
-			ID:      img.ID[len("sha256:"):12],
-			Name:    name,
-			Tag:     tag,
-			Size:    size,
-			Created: time.Unix(img.Created, 0).Format("2006-01-02 15:04:05"),
+			ID:          shortID,
+			Name:        name,
+			Tag:         tag,
+			Size:        size,
+			Created:     time.Unix(img.Created, 0).Format("2006-01-02 15:04:05"),
+			InUse:       len(usedBy) > 0,
+			UsedBy:      usedBy,
+			UsedByCount: len(usedBy),
 		})
 	}
 	return result
+}
+
+func buildImageUsage(containers []types.Container) map[string][]string {
+	usageMap := make(map[string][]string)
+	for _, c := range containers {
+		name := c.ID
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		if c.ImageID != "" {
+			usageMap[c.ImageID] = append(usageMap[c.ImageID], name)
+			shortImageID := strings.TrimPrefix(c.ImageID, "sha256:")
+			if len(shortImageID) > 12 {
+				shortImageID = shortImageID[:12]
+			}
+			usageMap[shortImageID] = append(usageMap[shortImageID], name)
+		}
+		if c.Image != "" {
+			usageMap[c.Image] = append(usageMap[c.Image], name)
+		}
+	}
+	return usageMap
 }
 
 func splitLast(s, sep string) []string {

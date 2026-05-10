@@ -2,6 +2,15 @@ import axios, { type AxiosError, type AxiosInstance, type AxiosResponse, type In
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    suppressErrorMessage?: boolean
+  }
+  interface InternalAxiosRequestConfig {
+    suppressErrorMessage?: boolean
+  }
+}
+
 // Create axios instance
 const request: AxiosInstance = axios.create({
   baseURL: '/api',
@@ -51,6 +60,11 @@ request.interceptors.response.use(
   (error: AxiosError) => {
     const status = error.response?.status
     const data = error.response?.data
+    const suppressErrorMessage = (error.config as InternalAxiosRequestConfig | undefined)?.suppressErrorMessage
+
+    if (suppressErrorMessage) {
+      return Promise.reject(error)
+    }
 
     if (status === 401) {
       // Token expired or invalid

@@ -12,16 +12,28 @@ import (
 
 	"rabbit-panel/config"
 	"rabbit-panel/router"
+	"rabbit-panel/service"
 )
 
-//go:embed dist
-var _ embed.FS
+//go:embed .dist
+var embeddedDist embed.FS
+
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildTime = "unknown"
+)
 
 func main() {
-	app, err := config.NewApp()
+	app, err := config.NewApp(service.BuildInfo{
+		Version:   Version,
+		Commit:    Commit,
+		BuildTime: BuildTime,
+	})
 	if err != nil {
 		log.Fatalf("初始化应用失败: %v", err)
 	}
+	app.StaticFS = embeddedDist
 
 	r := router.NewRouter(app)
 	r.Register()
@@ -30,22 +42,22 @@ func main() {
 
 	addr := app.Host + ":" + app.Port
 	if err := app.Engine.Run(addr); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+		log.Fatalf("服务启动失败: %v", err)
 	}
 }
 
-// 记录启动信息
 func logStartup(app *config.App) {
-	log.Printf("容器运维面板启动成功！")
-	log.Printf("监听地址: %s:%s", app.Host, app.Port)
-	log.Printf("本地访问: http://localhost:%s", app.Port)
+	log.Printf("Rabbit Panel started")
+	log.Printf("Listen: %s:%s", app.Host, app.Port)
+	log.Printf("Local URL: http://localhost:%s", app.Port)
 
 	if app.Mode == "master" {
-		log.Printf("Master 节点: 管理所有 Worker 节点")
+		log.Printf("Mode: master")
 	} else {
-		log.Printf("Worker 节点")
+		log.Printf("Mode: worker")
 	}
 
-	log.Printf("系统架构: %s/%s", runtime.GOOS, runtime.GOARCH)
-	log.Printf("按 Ctrl+C 停止服务")
+	log.Printf("Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
+	log.Printf("Version: %s commit=%s buildTime=%s", app.BuildInfo.Version, app.BuildInfo.Commit, app.BuildInfo.BuildTime)
+	log.Printf("Press Ctrl+C to stop")
 }

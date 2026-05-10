@@ -1,6 +1,7 @@
 package config
 
 import (
+	"embed"
 	"log"
 	"os"
 	"os/signal"
@@ -28,6 +29,8 @@ type App struct {
 	NodeSecret string
 	NodeID     string
 	ServerIP   string
+	BuildInfo  service.BuildInfo
+	StaticFS   embed.FS
 
 	// Repositories
 	DockerRepo repository.IDockerRepository
@@ -46,6 +49,7 @@ type App struct {
 	AgentService       *service.AgentService
 	NodeService        *service.NodeService
 	Scheduler          *service.Scheduler
+	UpdateService      *service.UpdateService
 
 	// Terminal service
 	TerminalService *exec.TerminalService
@@ -55,13 +59,14 @@ type App struct {
 }
 
 // NewApp 创建并初始化 App 实例
-func NewApp() (*App, error) {
+func NewApp(buildInfo service.BuildInfo) (*App, error) {
 	app := &App{
 		Mode:       getEnv("MODE", "master"),
 		Port:       getEnv("PORT", "3958"),
 		Host:       getEnv("HOST", "0.0.0.0"),
 		JWTSecret:  []byte(getEnv("JWT_SECRET", "change-me")),
 		NodeSecret: getEnv("NODE_SECRET", "node-secret"),
+		BuildInfo:  buildInfo,
 	}
 
 	// Get hostname for node ID
@@ -119,6 +124,7 @@ func (app *App) initServices() {
 	app.RegistryService = service.NewRegistryService(app.FileRepo)
 	app.DockerConfigService = service.NewDockerConfigService()
 	app.AgentService = service.NewAgentService(app.SQLiteRepo, app.DockerRepo)
+	app.UpdateService = service.NewUpdateService(app.FileRepo, app.BuildInfo)
 
 	// Master-only services
 	if app.Mode == "master" {

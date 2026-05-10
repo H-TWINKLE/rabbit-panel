@@ -39,7 +39,9 @@ export const authApi = {
    * @returns Login response with token and password change status
    */
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const response = await request.post<LoginResponse>('/auth/login', data)
+    const response: { data: LoginResponse } = await request.post<LoginResponse>('/auth/login', data, {
+      suppressErrorMessage: true,
+    })
     return response.data
   },
 

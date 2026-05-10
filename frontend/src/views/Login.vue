@@ -78,10 +78,12 @@ import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, Loading } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { useUpdateStore } from '@/stores/update'
 import { authApi } from '@/api/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const updateStore = useUpdateStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -131,6 +133,7 @@ async function handleLogin() {
     const success = await authStore.login(form.username, form.password, form.captcha, captchaId.value)
 
     if (success) {
+      await updateStore.fetchUpdateInfo()
       ElMessage.success('登录成功')
       router.push('/')
     } else {
@@ -250,6 +253,8 @@ onMounted(() => {
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.3);
   transition: border-color 0.2s;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .captcha-image:hover {

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"io"
 	"log"
 	"net/http"
@@ -142,8 +143,12 @@ func (r *Router) Register() {
 		apiAuth.GET("/settings/agent", r.handleAgentConfig)
 		apiAuth.POST("/settings/agent", r.handleAgentConfig)
 
-		// System stats
-		apiAuth.GET("/system/stats", r.handleSystemStats)
+		apiAuth.GET("/system/update/check", r.handleUpdateCheck)
+		apiAuth.GET("/system/update/status", r.handleUpdateStatus)
+		apiAuth.POST("/system/update/run", r.handleUpdateRun)
+		apiAuth.POST("/system/update/ignore", r.handleUpdateIgnore)
+		apiAuth.POST("/system/update/clear-ignore", r.handleUpdateClearIgnore)
+		apiAuth.POST("/system/update/clear-state", r.handleUpdateClearState)
 	}
 
 	// Master-only routes
@@ -177,8 +182,51 @@ func (r *Router) Register() {
 		if path == "/" {
 			path = "/index.html"
 		}
-		c.File("./dist" + path)
+		serveEmbeddedFile(c, r.app.StaticFS, path)
 	})
+}
+
+func serveEmbeddedFile(c *gin.Context, embeddedFS fs.FS, path string) {
+	cleanPath := strings.TrimPrefix(path, "/")
+	if cleanPath == "" {
+		cleanPath = "index.html"
+	}
+
+	fileData, err := fs.ReadFile(embeddedFS, ".dist/"+cleanPath)
+	if err != nil {
+		fileData, err = fs.ReadFile(embeddedFS, ".dist/index.html")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", fileData)
+		return
+	}
+
+	c.Data(http.StatusOK, detectContentType(cleanPath), fileData)
+}
+
+func detectContentType(path string) string {
+	switch {
+	case strings.HasSuffix(path, ".html"):
+		return "text/html; charset=utf-8"
+	case strings.HasSuffix(path, ".js"):
+		return "application/javascript; charset=utf-8"
+	case strings.HasSuffix(path, ".css"):
+		return "text/css; charset=utf-8"
+	case strings.HasSuffix(path, ".svg"):
+		return "image/svg+xml"
+	case strings.HasSuffix(path, ".json"):
+		return "application/json; charset=utf-8"
+	case strings.HasSuffix(path, ".png"):
+		return "image/png"
+	case strings.HasSuffix(path, ".jpg"), strings.HasSuffix(path, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(path, ".webp"):
+		return "image/webp"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 // === Auth Handlers ===
@@ -1624,4 +1672,3 @@ func (r *Router) detectShell(ctx context.Context, containerID string) string {
 	}
 	return "/bin/sh"
 }
-

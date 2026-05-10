@@ -119,6 +119,9 @@ export interface ImageInfo {
   tag: string
   size: string
   created: string
+  in_use: boolean
+  used_by: string[]
+  used_by_count: number
 }
 
 // Network Types
@@ -128,7 +131,9 @@ export interface NetworkInfo {
   driver: string
   scope: string
   ipam: string
-  containers: number
+  containers: string[]
+  container_count: number
+  in_use: boolean
   internal: boolean
   created: string
 }
@@ -229,6 +234,8 @@ export interface VolumeInfo {
     refCount: number
   }
   containers: string[]
+  container_count: number
+  in_use: boolean
 }
 
 export interface CreateVolumeRequest {
@@ -310,4 +317,35 @@ export interface ApiResponse<T> {
   data?: T
   error?: string
   status: number
+}
+
+export interface SystemUpdateInfo {
+  current_version: string
+  current_commit: string
+  current_build_time: string
+  latest_version: string
+  has_update: boolean
+  deploy_mode: 'docker' | 'binary' | string
+  image: string
+  image_tag: string
+  can_update: boolean
+  ignored_version: string
+  ignored: boolean
+  release_url: string
+  release_notes: string
+  message: string
+  last_check_time: string
+  last_update_time: string
+  last_update_status: string
+  last_update_error: string
+}
+
+export interface UpdateTaskStatus {
+  status: string
+  stage: string
+  progress: number
+  progress_known: boolean
+  last_update_time: string
+  last_error: string
+  log_lines: string[]
 }

@@ -103,8 +103,25 @@
         class-name="hidden-xs-only"
       >
         <template #default="{ row }">
-          <el-tag :type="row.containers > 0 ? 'success' : 'info'" size="small">
-            {{ row.containers }}
+          <el-tag :type="row.container_count > 0 ? 'success' : 'info'" size="small">
+            {{ row.container_count }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="in_use"
+        label="Usage"
+        width="140"
+        align="center"
+      >
+        <template #default="{ row }">
+          <el-tooltip v-if="row.containers && row.containers.length > 0" :content="row.containers.join(', ')" placement="top">
+            <el-tag type="success" size="small">
+              In Use
+            </el-tag>
+          </el-tooltip>
+          <el-tag v-else type="info" size="small">
+            Unused
           </el-tag>
         </template>
       </el-table-column>

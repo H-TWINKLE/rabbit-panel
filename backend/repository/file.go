@@ -22,6 +22,10 @@ type IFileRepository interface {
 	// Registries
 	LoadRegistries() (map[string]*RegistryRecord, error)
 	SaveRegistries(registries map[string]*RegistryRecord) error
+
+	// System update settings
+	LoadUpdateSettings() (*UpdateSettingsRecord, error)
+	SaveUpdateSettings(settings *UpdateSettingsRecord) error
 }
 
 // RegistryRecord 仓库记录
@@ -36,12 +40,24 @@ type RegistryRecord struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+// UpdateSettingsRecord stores persisted update state.
+type UpdateSettingsRecord struct {
+	IgnoredVersion   string `json:"ignored_version"`
+	LastCheckTime    string `json:"last_check_time"`
+	LastUpdateTime   string `json:"last_update_time"`
+	LastUpdateStatus string `json:"last_update_status"`
+	LastUpdateError  string `json:"last_update_error"`
+}
+
 // FileRepository 文件系统实现
 type FileRepository struct {
 	composeBaseDir string
 	registriesFile string
+	updateFile     string
 	registries     map[string]*RegistryRecord
 	registriesLock sync.RWMutex
+	updateSettings *UpdateSettingsRecord
+	updateLock     sync.RWMutex
 }
 
 // NewFileRepository 创建文件仓库实例
@@ -49,6 +65,7 @@ func NewFileRepository() *FileRepository {
 	return &FileRepository{
 		composeBaseDir: "./compose_projects",
 		registriesFile: "./data/registries.json",
+		updateFile:     "./data/system_update.json",
 	}
 }
 
@@ -205,6 +222,69 @@ func (r *FileRepository) SaveRegistries(registries map[string]*RegistryRecord) e
 	r.registriesLock.Lock()
 	r.registries = registries
 	r.registriesLock.Unlock()
+
+	return nil
+}
+
+// LoadUpdateSettings loads persisted update settings.
+func (r *FileRepository) LoadUpdateSettings() (*UpdateSettingsRecord, error) {
+	r.updateLock.RLock()
+	if r.updateSettings != nil {
+		defer r.updateLock.RUnlock()
+		copied := *r.updateSettings
+		return &copied, nil
+	}
+	r.updateLock.RUnlock()
+
+	dir := filepath.Dir(r.updateFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(r.updateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			settings := &UpdateSettingsRecord{}
+			r.updateLock.Lock()
+			r.updateSettings = settings
+			r.updateLock.Unlock()
+			return &UpdateSettingsRecord{}, nil
+		}
+		return nil, err
+	}
+
+	var settings UpdateSettingsRecord
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, err
+	}
+
+	r.updateLock.Lock()
+	r.updateSettings = &settings
+	r.updateLock.Unlock()
+
+	return &settings, nil
+}
+
+// SaveUpdateSettings persists update settings.
+func (r *FileRepository) SaveUpdateSettings(settings *UpdateSettingsRecord) error {
+	dir := filepath.Dir(r.updateFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(r.updateFile, data, 0644); err != nil {
+		return err
+	}
+
+	copied := *settings
+	r.updateLock.Lock()
+	r.updateSettings = &copied
+	r.updateLock.Unlock()
 
 	return nil
 }

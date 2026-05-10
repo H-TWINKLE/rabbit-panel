@@ -1,57 +1,51 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { Box, Connection, Monitor, Picture } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
 import { useSystemStore } from '@/stores/system'
 import { useContainerStore } from '@/stores/containers'
 import { useI18n } from '@/composables/useI18n'
-import { Monitor, Box, Picture, Connection } from '@element-plus/icons-vue'
-import * as echarts from 'echarts'
+import UpdateBanner from '@/components/common/UpdateBanner.vue'
+import UpdateDialog from '@/components/common/UpdateDialog.vue'
 
 const { t } = useI18n()
 const systemStore = useSystemStore()
 const containerStore = useContainerStore()
 
-// 格式化字节大小 (KB 转为可读格式)
-function formatSize(kb: number): string {
-  if (kb === 0) return '0 B'
-  const gb = kb / 1024 / 1024
-  if (gb >= 1) {
-    return `${gb.toFixed(1)} GB`
-  }
-  const mb = kb / 1024
-  if (mb >= 1) {
-    return `${mb.toFixed(1)} MB`
-  }
-  return `${kb.toFixed(0)} KB`
-}
-
-// 图表实例
 const lineChartRef = ref<HTMLElement | null>(null)
 const pieChartRef = ref<HTMLElement | null>(null)
 const gaugeChartRef = ref<HTMLElement | null>(null)
 const lineChart = shallowRef<echarts.ECharts | null>(null)
 const pieChart = shallowRef<echarts.ECharts | null>(null)
 const gaugeChart = shallowRef<echarts.ECharts | null>(null)
-
-// 历史数据
 const cpuHistory = ref<number[]>([])
 const memoryHistory = ref<number[]>([])
 const historyLabels = ref<string[]>([])
+const showUpdateDialog = ref(false)
 const maxHistoryLength = 20
+
+function formatSize(kb: number): string {
+  if (kb === 0) return '0 B'
+  const gb = kb / 1024 / 1024
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  const mb = kb / 1024
+  if (mb >= 1) return `${mb.toFixed(1)} MB`
+  return `${kb.toFixed(0)} KB`
+}
 
 function updateHistory() {
   const now = new Date()
   const timeLabel = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
-  
   cpuHistory.value.push(systemStore.stats.cpu)
   memoryHistory.value.push(systemStore.stats.memory)
   historyLabels.value.push(timeLabel)
-  
+
   if (cpuHistory.value.length > maxHistoryLength) {
     cpuHistory.value.shift()
     memoryHistory.value.shift()
     historyLabels.value.shift()
   }
-  
+
   updateLineChart()
   updateGaugeChart()
 }
@@ -64,9 +58,8 @@ function initLineChart() {
 
 function updateLineChart() {
   if (!lineChart.value) return
-  
   const option: echarts.EChartsOption = {
-    tooltip: { 
+    tooltip: {
       trigger: 'axis',
       formatter: (params: any) => {
         if (!Array.isArray(params)) return ''
@@ -75,18 +68,40 @@ function updateLineChart() {
           result += `<br/>${item.marker}${item.seriesName}: ${item.value.toFixed(1)}%`
         })
         return result
-      }
+      },
     },
     legend: { data: ['CPU', t('system.memory')], bottom: 0 },
     grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: historyLabels.value, axisLabel: { fontSize: 10, rotate: 30 } },
     yAxis: { type: 'value', min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
     series: [
-      { name: 'CPU', type: 'line', smooth: true, data: cpuHistory.value, itemStyle: { color: '#409EFF' },
-        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(64,158,255,0.3)' }, { offset: 1, color: 'rgba(64,158,255,0.05)' }]) } },
-      { name: t('system.memory'), type: 'line', smooth: true, data: memoryHistory.value, itemStyle: { color: '#67C23A' },
-        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(103,194,58,0.3)' }, { offset: 1, color: 'rgba(103,194,58,0.05)' }]) } }
-    ]
+      {
+        name: 'CPU',
+        type: 'line',
+        smooth: true,
+        data: cpuHistory.value,
+        itemStyle: { color: '#409EFF' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(64,158,255,0.3)' },
+            { offset: 1, color: 'rgba(64,158,255,0.05)' },
+          ]),
+        },
+      },
+      {
+        name: t('system.memory'),
+        type: 'line',
+        smooth: true,
+        data: memoryHistory.value,
+        itemStyle: { color: '#67C23A' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(103,194,58,0.3)' },
+            { offset: 1, color: 'rgba(103,194,58,0.05)' },
+          ]),
+        },
+      },
+    ],
   }
   lineChart.value.setOption(option)
 }
@@ -100,38 +115,35 @@ function initPieChart() {
 function updatePieChart() {
   if (!pieChart.value) return
   const stats = containerStats.value
-  
-  // 所有状态都显示，即使值为 0
   const pieData = [
     { value: stats.running, name: t('container.running'), itemStyle: { color: '#67C23A' } },
     { value: stats.stopped, name: t('container.stopped'), itemStyle: { color: '#F56C6C' } },
-    { value: stats.paused, name: t('container.paused'), itemStyle: { color: '#E6A23C' } }
+    { value: stats.paused, name: t('container.paused'), itemStyle: { color: '#E6A23C' } },
   ]
-  
-  // 过滤掉值为 0 的用于显示，但保留图例
   const displayData = pieData.filter(item => item.value > 0)
-  
-  // 如果全部为 0，显示一个空状态
   if (displayData.length === 0) {
-    displayData.push({ value: 1, name: '无容器', itemStyle: { color: '#dcdfe6' } })
+    displayData.push({ value: 1, name: 'No Containers', itemStyle: { color: '#dcdfe6' } })
   }
-  
-  const displayTotal = stats.total
-  
+
   const option: echarts.EChartsOption = {
     tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { 
-      bottom: 0, 
-      itemWidth: 10, 
-      itemHeight: 10,
-      data: pieData.map(item => item.name)  // 显示所有图例
-    },
-    series: [{
-      type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'],
-      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
-      label: { show: true, position: 'center', formatter: () => `${displayTotal}\n容器`, fontSize: 16, fontWeight: 'bold' },
-      data: displayData
-    }]
+    legend: { bottom: 0, itemWidth: 10, itemHeight: 10, data: pieData.map(item => item.name) },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '70%'],
+        center: ['50%', '45%'],
+        itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+        label: {
+          show: true,
+          position: 'center',
+          formatter: () => `${stats.total}\nContainers`,
+          fontSize: 16,
+          fontWeight: 'bold',
+        },
+        data: displayData,
+      },
+    ],
   }
   pieChart.value.setOption(option)
 }
@@ -146,17 +158,25 @@ function updateGaugeChart() {
   if (!gaugeChart.value) return
   const diskValue = systemStore.stats.disk
   const option: echarts.EChartsOption = {
-    series: [{
-      type: 'gauge', startAngle: 200, endAngle: -20, min: 0, max: 100,
-      itemStyle: { color: diskValue >= 90 ? '#F56C6C' : diskValue >= 70 ? '#E6A23C' : '#67C23A' },
-      progress: { show: true, width: 20 },
-      pointer: { show: false },
-      axisLine: { lineStyle: { width: 20, color: [[1, '#e0e0e0']] } },
-      axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
-      title: { show: true, offsetCenter: [0, '30%'], fontSize: 14, color: '#999' },
-      detail: { valueAnimation: true, offsetCenter: [0, '-10%'], fontSize: 28, fontWeight: 'bold', formatter: '{value}%', color: 'inherit' },
-      data: [{ value: diskValue, name: t('system.disk') + t('system.usage') }]
-    }]
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 200,
+        endAngle: -20,
+        min: 0,
+        max: 100,
+        itemStyle: { color: diskValue >= 90 ? '#F56C6C' : diskValue >= 70 ? '#E6A23C' : '#67C23A' },
+        progress: { show: true, width: 20 },
+        pointer: { show: false },
+        axisLine: { lineStyle: { width: 20, color: [[1, '#e0e0e0']] } },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: { show: false },
+        title: { show: true, offsetCenter: [0, '30%'], fontSize: 14, color: '#999' },
+        detail: { valueAnimation: true, offsetCenter: [0, '-10%'], fontSize: 28, fontWeight: 'bold', formatter: '{value}%', color: 'inherit' },
+        data: [{ value: diskValue, name: `${t('system.disk')} ${t('system.usage')}` }],
+      },
+    ],
   }
   gaugeChart.value.setOption(option)
 }
@@ -166,27 +186,6 @@ function handleResize() {
   pieChart.value?.resize()
   gaugeChart.value?.resize()
 }
-
-let historyTimer: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  systemStore.startPolling()
-  containerStore.fetchContainers()
-  for (let i = 0; i < 5; i++) { cpuHistory.value.push(0); memoryHistory.value.push(0); historyLabels.value.push('--:--:--') }
-  setTimeout(() => { initLineChart(); initPieChart(); initGaugeChart() }, 100)
-  historyTimer = setInterval(updateHistory, 5000)
-  setTimeout(updateHistory, 1000)
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  systemStore.stopPolling()
-  if (historyTimer) clearInterval(historyTimer)
-  window.removeEventListener('resize', handleResize)
-  lineChart.value?.dispose(); pieChart.value?.dispose(); gaugeChart.value?.dispose()
-})
-
-watch(() => containerStore.containers, () => updatePieChart(), { deep: true })
 
 function getProgressColor(percent: number): string {
   if (percent >= 90) return '#F56C6C'
@@ -198,19 +197,46 @@ const containerStats = computed(() => {
   const containers = containerStore.containers
   const running = containers.filter(c => c.state === 'running').length
   const paused = containers.filter(c => c.state === 'paused').length
-  // 停止的容器包括 exited, dead, created 等非运行状态
   const stopped = containers.filter(c => c.state !== 'running' && c.state !== 'paused').length
-  return {
-    total: containers.length,
-    running,
-    stopped,
-    paused,
-  }
+  return { total: containers.length, running, stopped, paused }
 })
+
+let historyTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  systemStore.startPolling()
+  containerStore.fetchContainers()
+  for (let i = 0; i < 5; i++) {
+    cpuHistory.value.push(0)
+    memoryHistory.value.push(0)
+    historyLabels.value.push('--:--:--')
+  }
+  setTimeout(() => {
+    initLineChart()
+    initPieChart()
+    initGaugeChart()
+  }, 100)
+  historyTimer = setInterval(updateHistory, 5000)
+  setTimeout(updateHistory, 1000)
+  window.addEventListener('resize', handleResize)
+})
+
+onUnmounted(() => {
+  systemStore.stopPolling()
+  if (historyTimer) clearInterval(historyTimer)
+  window.removeEventListener('resize', handleResize)
+  lineChart.value?.dispose()
+  pieChart.value?.dispose()
+  gaugeChart.value?.dispose()
+})
+
+watch(() => containerStore.containers, () => updatePieChart(), { deep: true })
 </script>
 
 <template>
   <div class="dashboard">
+    <UpdateBanner @open-dialog="showUpdateDialog = true" />
+
     <div class="stats-row">
       <el-card class="stat-card" shadow="hover">
         <div class="stat-content">
@@ -222,6 +248,7 @@ const containerStats = computed(() => {
         </div>
         <el-progress :percentage="systemStore.stats.cpu" :stroke-width="6" :color="getProgressColor(systemStore.stats.cpu)" :show-text="false" />
       </el-card>
+
       <el-card class="stat-card" shadow="hover">
         <div class="stat-content">
           <div class="stat-icon memory"><el-icon :size="32"><Box /></el-icon></div>
@@ -233,6 +260,7 @@ const containerStats = computed(() => {
         </div>
         <el-progress :percentage="systemStore.stats.memory" :stroke-width="6" :color="getProgressColor(systemStore.stats.memory)" :show-text="false" />
       </el-card>
+
       <el-card class="stat-card" shadow="hover">
         <div class="stat-content">
           <div class="stat-icon disk"><el-icon :size="32"><Picture /></el-icon></div>
@@ -244,6 +272,7 @@ const containerStats = computed(() => {
         </div>
         <el-progress :percentage="systemStore.stats.disk" :stroke-width="6" :color="getProgressColor(systemStore.stats.disk)" :show-text="false" />
       </el-card>
+
       <el-card class="stat-card" shadow="hover">
         <div class="stat-content">
           <div class="stat-icon containers"><el-icon :size="32"><Connection /></el-icon></div>
@@ -258,34 +287,39 @@ const containerStats = computed(() => {
         </div>
       </el-card>
     </div>
+
     <div class="charts-row">
       <el-card class="chart-card" shadow="hover">
-        <template #header><span>CPU / {{ t('system.memory') }} {{ t('system.usage') }}趋势</span></template>
+        <template #header><span>CPU / {{ t('system.memory') }} {{ t('system.usage') }}</span></template>
         <div ref="lineChartRef" class="chart-container"></div>
       </el-card>
+
       <el-card class="chart-card" shadow="hover">
-        <template #header><span>{{ t('nav.containers') }}状态</span></template>
+        <template #header><span>{{ t('nav.containers') }}</span></template>
         <div ref="pieChartRef" class="chart-container"></div>
       </el-card>
     </div>
+
     <div class="charts-row-2">
       <el-card class="chart-card" shadow="hover">
         <template #header><span>{{ t('system.disk') }} {{ t('system.usage') }}</span></template>
         <div ref="gaugeChartRef" class="chart-container"></div>
       </el-card>
+
       <el-card class="info-card" shadow="hover">
-        <template #header><span>服务器信息</span></template>
+        <template #header><span>Server Info</span></template>
         <div class="server-info">
           <div class="info-item"><span class="info-label">{{ t('system.serverTime') }}</span><span class="info-value">{{ systemStore.stats.time || '--' }}</span></div>
-          <div class="info-item"><span class="info-label">容器总数</span><span class="info-value">{{ containerStats.total }}</span></div>
-          <div class="info-item"><span class="info-label">运行中</span><span class="info-value success">{{ containerStats.running }}</span></div>
-          <div class="info-item"><span class="info-label">已停止</span><span class="info-value danger">{{ containerStats.stopped }}</span></div>
+          <div class="info-item"><span class="info-label">Containers</span><span class="info-value">{{ containerStats.total }}</span></div>
+          <div class="info-item"><span class="info-label">Running</span><span class="info-value success">{{ containerStats.running }}</span></div>
+          <div class="info-item"><span class="info-label">Stopped</span><span class="info-value danger">{{ containerStats.stopped }}</span></div>
         </div>
       </el-card>
     </div>
   </div>
-</template>
 
+  <UpdateDialog v-model="showUpdateDialog" />
+</template>
 
 <style scoped>
 .dashboard { padding: 20px; }

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+﻿import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import AutoImport from 'unplugin-auto-import/vite'
@@ -39,7 +39,7 @@ export default defineConfig({
   },
   build: {
     // 输出到 backend/dist 目录，供 Go 后端嵌入
-    outDir: '../backend/dist',
+    outDir: '../backend/.dist',
     emptyOutDir: true,
     // 优化打包体积
     rollupOptions: {
@@ -68,3 +68,4 @@ export default defineConfig({
     target: 'es2015',
   },
 })
+

@@ -2,16 +2,18 @@ package model
 
 // NetworkInfo 网络信息
 type NetworkInfo struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Driver   string   `json:"driver"`
-	Scope    string   `json:"scope"`
-	Internal bool     `json:"internal"`
-	Attachable bool   `json:"attachable"`
-	Containers []string `json:"containers"`
-	Subnet   string   `json:"subnet"`
-	Gateway  string   `json:"gateway"`
-	Created  string   `json:"created"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Driver        string   `json:"driver"`
+	Scope         string   `json:"scope"`
+	Internal      bool     `json:"internal"`
+	Attachable    bool     `json:"attachable"`
+	Containers    []string `json:"containers"`
+	ContainerCount int     `json:"container_count"`
+	InUse         bool     `json:"in_use"`
+	Subnet        string   `json:"subnet"`
+	Gateway       string   `json:"gateway"`
+	Created       string   `json:"created"`
 }
 
 // NetworkConnectRequest 网络连接请求

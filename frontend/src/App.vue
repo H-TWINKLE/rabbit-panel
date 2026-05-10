@@ -2,12 +2,14 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useUpdateStore } from '@/stores/update'
 import { useTheme } from '@/composables/useTheme'
 import { useI18n } from '@/composables/useI18n'
 import ChangePasswordDialog from '@/components/common/ChangePasswordDialog.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
+const updateStore = useUpdateStore()
 const { initTheme } = useTheme()
 const { initLanguage } = useI18n()
 
@@ -29,9 +31,24 @@ watch(
 // Also check when route changes
 watch(
   () => route.name,
-  () => {
+  (name) => {
     if (authStore.needChangePassword && authStore.isAuthenticated && route.name !== 'login') {
       showPasswordDialog.value = true
+    }
+    if (name !== 'login' && authStore.isAuthenticated && !updateStore.info && !updateStore.loading) {
+      updateStore.fetchUpdateInfo()
+    }
+  }
+)
+
+watch(
+  () => authStore.isAuthenticated,
+  (isAuthenticated, wasAuthenticated) => {
+    if (isAuthenticated && !wasAuthenticated) {
+      updateStore.fetchUpdateInfo()
+    }
+    if (!isAuthenticated && wasAuthenticated) {
+      updateStore.resetAllState()
     }
   }
 )
@@ -41,6 +58,9 @@ onMounted(() => {
   authStore.initialize()
   initTheme()
   initLanguage()
+  if (authStore.isAuthenticated) {
+    updateStore.fetchUpdateInfo()
+  }
 })
 
 function handlePasswordChangeSuccess() {

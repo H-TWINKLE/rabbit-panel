@@ -2,15 +2,17 @@ package model
 
 // VolumeInfo 存储卷信息
 type VolumeInfo struct {
-	Name       string            `json:"name"`
-	Driver     string            `json:"driver"`
-	Mountpoint string            `json:"mountpoint"`
-	Created    string            `json:"created"`
-	Scope      string            `json:"scope"`
-	Labels     map[string]string `json:"labels"`
-	Options    map[string]string `json:"options"`
-	UsageData  *VolumeUsageData `json:"usageData,omitempty"`
-	Containers []string          `json:"containers"`
+	Name          string            `json:"name"`
+	Driver        string            `json:"driver"`
+	Mountpoint    string            `json:"mountpoint"`
+	Created       string            `json:"created"`
+	Scope         string            `json:"scope"`
+	Labels        map[string]string `json:"labels"`
+	Options       map[string]string `json:"options"`
+	UsageData     *VolumeUsageData  `json:"usageData,omitempty"`
+	Containers    []string          `json:"containers"`
+	ContainerCount int              `json:"container_count"`
+	InUse         bool              `json:"in_use"`
 }
 
 // VolumeUsageData 存储卷使用数据

@@ -14,11 +14,14 @@ type ContainerInfo struct {
 
 // ImageInfo 镜像列表项
 type ImageInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Tag     string `json:"tag"`
-	Size    string `json:"size"`
-	Created string `json:"created"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Tag          string   `json:"tag"`
+	Size         string   `json:"size"`
+	Created      string   `json:"created"`
+	InUse        bool     `json:"in_use"`
+	UsedBy       []string `json:"used_by"`
+	UsedByCount  int      `json:"used_by_count"`
 }
 
 // SystemStats 系统监控数据
