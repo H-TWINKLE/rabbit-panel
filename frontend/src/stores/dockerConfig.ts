@@ -24,12 +24,28 @@ export const useDockerConfigStore = defineStore('dockerConfig', () => {
     try {
       loading.value = true
       error.value = null
-      const [configData, infoData] = await Promise.all([
+      const [configResult, infoResult] = await Promise.allSettled([
         dockerConfigApi.getConfig(),
         dockerConfigApi.getInfo(),
       ])
-      config.value = configData
-      info.value = infoData
+
+      const errors: string[] = []
+
+      if (configResult.status === 'fulfilled') {
+        config.value = configResult.value
+      } else {
+        errors.push(configResult.reason instanceof Error ? configResult.reason.message : 'Failed to fetch Docker config')
+      }
+
+      if (infoResult.status === 'fulfilled') {
+        info.value = infoResult.value
+      } else {
+        errors.push(infoResult.reason instanceof Error ? infoResult.reason.message : 'Failed to fetch Docker info')
+      }
+
+      if (errors.length > 0) {
+        error.value = errors.join('; ')
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch Docker config'
     } finally {

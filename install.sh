@@ -3,6 +3,7 @@
 set -euo pipefail
 
 MANIFEST_URL="${RABBIT_INSTALL_MANIFEST_URL:-https://reisen7.github.io/rabbit-panel/latest.json}"
+MANIFEST_FALLBACK_URL="${RABBIT_INSTALL_MANIFEST_FALLBACK_URL:-https://raw.githubusercontent.com/reisen7/rabbit-panel/gh-pages/latest.json}"
 INSTALL_DIR="${RABBIT_INSTALL_DIR:-/opt/rabbit-panel}"
 BIN_PATH="${RABBIT_BIN_PATH:-/usr/local/bin/rabbit-panel}"
 SERVICE_NAME="${RABBIT_SERVICE_NAME:-rabbit-panel}"
@@ -42,30 +43,74 @@ require_cmd() {
   fi
 }
 
+try_download() {
+  local url="$1"
+  local output="$2"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl --retry 3 --connect-timeout 10 -fsSL "$url" -o "$output"
+    return $?
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -t 3 -T 10 -qO "$output" "$url"
+    return $?
+  fi
+
+  echo "[ERROR] curl or wget is required." >&2
+  exit 1
+}
+
 fetch_manifest() {
   local manifest_path="$TMP_DIR/latest.json"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$MANIFEST_URL" -o "$manifest_path"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$manifest_path" "$MANIFEST_URL"
+
+  if try_download "$MANIFEST_URL" "$manifest_path"; then
+    :
+  elif [ "$MANIFEST_FALLBACK_URL" != "$MANIFEST_URL" ] && try_download "$MANIFEST_FALLBACK_URL" "$manifest_path"; then
+    echo "[WARN] Failed to fetch manifest from primary URL, switched to fallback URL." >&2
   else
-    echo "[ERROR] curl or wget is required."
+    echo "[ERROR] Failed to fetch update manifest." >&2
+    echo "[ERROR] Primary:  $MANIFEST_URL" >&2
+    echo "[ERROR] Fallback: $MANIFEST_FALLBACK_URL" >&2
     exit 1
   fi
+
+  if [ ! -s "$manifest_path" ]; then
+    echo "[ERROR] Manifest file is empty: $manifest_path" >&2
+    exit 1
+  fi
+
   echo "$manifest_path"
 }
 
 read_json() {
   local file="$1"
   local key="$2"
+
+  if [ ! -f "$file" ]; then
+    echo "[ERROR] JSON file not found: $file" >&2
+    exit 1
+  fi
+
   python3 - "$file" "$key" <<'PY'
 import json, sys
 file_path, key = sys.argv[1], sys.argv[2]
-with open(file_path, 'r', encoding='utf-8') as f:
-    data = json.load(f)
-value = data
-for part in key.split('.'):
-    value = value[part]
+try:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    value = data
+    for part in key.split('.'):
+        value = value[part]
+except FileNotFoundError:
+    print(f"[ERROR] JSON file not found: {file_path}", file=sys.stderr)
+    sys.exit(1)
+except KeyError:
+    print(f"[ERROR] Missing key in manifest: {key}", file=sys.stderr)
+    sys.exit(1)
+except json.JSONDecodeError as exc:
+    print(f"[ERROR] Invalid JSON in {file_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
+
 print(value)
 PY
 }
@@ -73,10 +118,10 @@ PY
 download_file() {
   local url="$1"
   local output="$2"
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output"
-  else
-    wget -qO "$output" "$url"
+
+  if ! try_download "$url" "$output"; then
+    echo "[ERROR] Failed to download file: $url" >&2
+    exit 1
   fi
 }
 
@@ -192,11 +237,24 @@ PY
   systemctl enable "$SERVICE_NAME"
   systemctl restart "$SERVICE_NAME"
 
+  local access_host
+  access_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  if [ -z "$access_host" ]; then
+    access_host="127.0.0.1"
+  fi
+
   echo "[OK] Rabbit Panel installed."
-  echo "[INFO] Service: ${SERVICE_NAME}"
-  echo "[INFO] Binary:  ${BIN_PATH}"
-  echo "[INFO] Config:  ${ENV_FILE}"
-  echo "[INFO] Visit:   http://$(hostname -I | awk '{print $1}'):3958"
+  echo "[INFO] Service name: ${SERVICE_NAME}"
+  echo "[INFO] Binary path:  ${BIN_PATH}"
+  echo "[INFO] Env file:     ${ENV_FILE}"
+  echo "[INFO] Access URL:   http://${access_host}:3958"
+  echo
+  echo "[INFO] Service management commands:"
+  echo "  systemctl start ${SERVICE_NAME}"
+  echo "  systemctl stop ${SERVICE_NAME}"
+  echo "  systemctl restart ${SERVICE_NAME}"
+  echo "  systemctl status ${SERVICE_NAME}"
+  echo "  journalctl -u ${SERVICE_NAME} -f"
 }
 
 main "$@"

@@ -111,16 +111,21 @@ func (s *ContainerService) RenameContainer(ctx context.Context, id, newName stri
 }
 
 // GetContainerLogs 获取容器日志
-func (s *ContainerService) GetContainerLogs(ctx context.Context, id, tail string) (io.ReadCloser, error) {
-	var tailOpt int64 = 100
-	if tail != "" {
+func (s *ContainerService) GetContainerLogs(ctx context.Context, id, tail string, follow bool) (io.ReadCloser, error) {
+	tailValue := "100"
+	if strings.EqualFold(strings.TrimSpace(tail), "all") {
+		tailValue = "all"
+	} else if strings.TrimSpace(tail) != "" {
+		var tailOpt int64 = 100
 		fmt.Sscanf(tail, "%d", &tailOpt)
+		tailValue = fmt.Sprintf("%d", tailOpt)
 	}
 	return s.dockerRepo.ContainerLogs(ctx, id, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Tail:       fmt.Sprintf("%d", tailOpt),
+		Tail:       tailValue,
 		Timestamps: true,
+		Follow:     follow,
 	})
 }
 

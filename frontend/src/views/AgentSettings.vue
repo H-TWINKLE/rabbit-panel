@@ -18,7 +18,10 @@
         </el-form-item>
         
         <el-form-item :label="t('agent.apiKey')">
-          <el-input v-model="form.api_key" type="password" show-password placeholder="sk-..." />
+          <div class="key-row">
+            <span class="key-mask">{{ displayApiKey }}</span>
+            <el-button @click="showKeyDialog = true">{{ t('agent.changeKey') }}</el-button>
+          </div>
         </el-form-item>
         
         <el-form-item :label="t('agent.model')">
@@ -30,11 +33,23 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-dialog v-model="showKeyDialog" :title="t('agent.changeKey')" width="460px">
+      <el-form label-width="100px">
+        <el-form-item :label="t('agent.apiKey')">
+          <el-input v-model="newApiKey" type="password" show-password placeholder="sk-..." />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="handleCancelKeyDialog">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleConfirmKeyChange">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getAgentConfig, saveAgentConfig, type AgentConfig } from '@/api/agent'
 import { ElMessage } from 'element-plus'
@@ -48,14 +63,16 @@ const form = ref<AgentConfig>({
   model: 'gpt-3.5-turbo',
   enabled: false
 })
+const showKeyDialog = ref(false)
+const newApiKey = ref('')
+
+const displayApiKey = computed(() => form.value.api_key || t('agent.notSet'))
 
 const loadConfig = async () => {
   loading.value = true
   try {
     const res = await getAgentConfig()
-    // Axios response data is usually in res.data, but request interceptor might return data directly?
-    // Checking request.ts: interceptor returns response. So we need res.data
-    form.value = (res.data as unknown as AgentConfig) 
+    form.value = res.data as AgentConfig
   } catch (error) {
     console.error(error)
   } finally {
@@ -66,7 +83,38 @@ const loadConfig = async () => {
 const handleSave = async () => {
   loading.value = true
   try {
-    await saveAgentConfig(form.value)
+    await saveAgentConfig({
+      ...form.value,
+      api_key: '',
+    })
+    await loadConfig()
+    ElMessage.success(t('agent.saveSuccess'))
+  } catch (error) {
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleCancelKeyDialog = () => {
+  showKeyDialog.value = false
+  newApiKey.value = ''
+}
+
+const handleConfirmKeyChange = async () => {
+  const key = newApiKey.value.trim()
+  if (!key) {
+    return
+  }
+  loading.value = true
+  try {
+    await saveAgentConfig({
+      ...form.value,
+      api_key: key,
+    })
+    await loadConfig()
+    showKeyDialog.value = false
+    newApiKey.value = ''
     ElMessage.success(t('agent.saveSuccess'))
   } catch (error) {
     console.error(error)
@@ -89,5 +137,16 @@ onMounted(() => {
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+}
+.key-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.key-mask {
+  color: var(--el-text-color-regular);
+  font-family: monospace;
 }
 </style>

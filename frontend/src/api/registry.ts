@@ -21,7 +21,7 @@ export const registryApi = {
    * @returns Created registry info
    */
   async create(data: CreateRegistryRequest): Promise<RegistryInfo> {
-    const response = await request.post<RegistryInfo>('/registries', data)
+    const response = await request.post<RegistryInfo>('/registries/create', data)
     return response.data
   },
 
@@ -32,7 +32,10 @@ export const registryApi = {
    * @returns Updated registry info
    */
   async update(id: string, data: Partial<CreateRegistryRequest>): Promise<RegistryInfo> {
-    const response = await request.put<RegistryInfo>(`/registries/${id}`, data)
+    const response = await request.post<RegistryInfo>('/registries/create', {
+      ...data,
+      url: data.url || id,
+    })
     return response.data
   },
 
@@ -41,7 +44,7 @@ export const registryApi = {
    * @param id Registry ID
    */
   async remove(id: string): Promise<void> {
-    await request.delete(`/registries/${id}`)
+    await request.post('/registries/remove', { url: id })
   },
 
   /**
@@ -49,8 +52,12 @@ export const registryApi = {
    * @param id Registry ID
    * @returns Test result with success status and message
    */
-  async test(id: string): Promise<RegistryTestResult> {
-    const response = await request.post<RegistryTestResult>(`/registries/${id}/test`)
+  async test(id: string, data?: Partial<CreateRegistryRequest>): Promise<RegistryTestResult> {
+    const response = await request.post<RegistryTestResult>('/registries/test', {
+      url: data?.url || id,
+      username: data?.username || '',
+      password: data?.password || '',
+    })
     return response.data
   },
 }

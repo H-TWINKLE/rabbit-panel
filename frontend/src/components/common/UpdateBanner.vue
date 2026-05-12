@@ -12,7 +12,7 @@
       <span>{{ description }}</span>
       <div class="actions">
         <el-button size="small" @click="updateStore.fetchUpdateInfo()">{{ t('update.checkNow') }}</el-button>
-        <el-button size="small" type="primary" :disabled="!updateStore.info.can_update" :loading="updateStore.running" @click="emit('open-dialog')">
+        <el-button size="small" type="primary" :disabled="!updateStore.info.has_update || !updateStore.info.can_update" :loading="updateStore.running" @click="emit('open-dialog')">
           {{ t('update.updateNow') }}
         </el-button>
         <el-button size="small" @click="emit('open-dialog')">{{ t('update.details') }}</el-button>

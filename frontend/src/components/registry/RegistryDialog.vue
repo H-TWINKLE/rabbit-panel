@@ -161,7 +161,7 @@ async function handleSubmit() {
     }
 
     if (isEdit.value && props.registry) {
-      await registryStore.updateRegistry(props.registry.id, data)
+      await registryStore.updateRegistry(props.registry.url, data)
       ElMessage.success(t('registry.updateSuccess'))
     } else {
       await registryStore.createRegistry(data)

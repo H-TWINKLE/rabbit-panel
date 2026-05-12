@@ -121,6 +121,7 @@ const focusInput = () => {
 // Watch for window open to focus input and scroll to bottom
 watch(isOpen, (val) => {
   if (val) {
+    loadHistory()
     focusInput()
     scrollToBottom()
   }
@@ -154,23 +155,6 @@ const loadHistory = async () => {
     }
   } catch (e) {
     console.error('Failed to load history:', e)
-  }
-}
-
-// Save a single message to server
-const saveMessage = async (msg: Message) => {
-  const token = getToken()
-  try {
-    await fetch('/api/agent/history', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(msg)
-    })
-  } catch (e) {
-    console.error('Failed to save message:', e)
   }
 }
 
@@ -215,9 +199,6 @@ const sendMessage = async () => {
   scrollToBottom()
   focusInput()
   
-  // Save user message to history
-  saveMessage(userMessage)
-
   const token = getToken()
   try {
     const response = await fetch('/api/agent/chat', {
@@ -304,8 +285,6 @@ const sendMessage = async () => {
     if (started && assistantMsgIndex >= 0) {
       const finalMessage: Message = { role: 'assistant', content: fullContent }
       messages.value.splice(assistantMsgIndex, 1, finalMessage)
-      // Save assistant message to history
-      saveMessage(finalMessage)
     }
     // Stream complete - now enable input
     isThinking.value = false
@@ -316,7 +295,6 @@ const sendMessage = async () => {
     isThinking.value = false
     const errorMessage: Message = { role: 'assistant', content: `**${t('agent.error')}**: ${t('agent.responseError')}` }
     messages.value.push(errorMessage)
-    saveMessage(errorMessage)
   }
 }
 

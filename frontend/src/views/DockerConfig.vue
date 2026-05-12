@@ -17,6 +17,15 @@
     </div>
 
     <template v-else>
+      <el-alert
+        v-if="dockerConfigStore.error"
+        :title="dockerConfigStore.error"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="page-alert"
+      />
+
       <!-- Docker Info Card -->
       <el-card class="info-card" shadow="hover">
         <template #header>
@@ -407,6 +416,10 @@ onMounted(() => {
 
 .loading-container {
   padding: 20px;
+}
+
+.page-alert {
+  margin-bottom: 20px;
 }
 
 .info-card {

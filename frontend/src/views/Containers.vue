@@ -106,7 +106,7 @@
         <template #default="{ row }">
           <template v-if="row.state === 'running'">
             <span v-if="loadingStats[row.id]">...</span>
-            <span v-else-if="containerStats[row.id]">{{ containerStats[row.id]!.cpu_percent.toFixed(1) }}%</span>
+            <span v-else-if="hasCpuStats(row.id)">{{ containerStats[row.id]!.cpu_percent.toFixed(1) }}%</span>
             <span v-else>-</span>
           </template>
           <span v-else>-</span>
@@ -121,7 +121,7 @@
         <template #default="{ row }">
           <template v-if="row.state === 'running'">
             <span v-if="loadingStats[row.id]">...</span>
-            <template v-else-if="containerStats[row.id]">
+            <template v-else-if="hasMemoryStats(row.id)">
               <span>{{ formatMemory(containerStats[row.id]!.memory_usage) }}</span>
               <span v-if="containerStats[row.id]!.has_memory_limit" class="memory-limit"> / {{ formatMemory(containerStats[row.id]!.memory_limit) }}</span>
               <span v-else class="memory-limit"> / 无限制</span>
@@ -248,6 +248,16 @@ function formatMemory(bytes: number): string {
     return `${(mb / 1024).toFixed(1)} GB`
   }
   return `${mb.toFixed(0)} MB`
+}
+
+function hasCpuStats(containerId: string): boolean {
+  const stats = containerStats[containerId]
+  return !!stats && typeof stats.cpu_percent === 'number' && Number.isFinite(stats.cpu_percent)
+}
+
+function hasMemoryStats(containerId: string): boolean {
+  const stats = containerStats[containerId]
+  return !!stats && typeof stats.memory_usage === 'number' && Number.isFinite(stats.memory_usage)
 }
 
 // 获取容器 stats

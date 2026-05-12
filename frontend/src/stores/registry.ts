@@ -63,8 +63,8 @@ export const useRegistryStore = defineStore('registry', () => {
    * @param id Registry ID
    * @returns Test result
    */
-  async function testRegistry(id: string): Promise<RegistryTestResult> {
-    return await registryApi.test(id)
+  async function testRegistry(id: string, data?: Partial<CreateRegistryRequest>): Promise<RegistryTestResult> {
+    return await registryApi.test(id, data)
   }
 
   return {

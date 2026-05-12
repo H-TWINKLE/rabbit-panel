@@ -8,6 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/go-connections/nat"
 
 	"rabbit-panel/model"
 	"rabbit-panel/repository"
@@ -31,14 +37,25 @@ func NewScheduler(ns *NodeService, dr repository.IDockerRepository, nodeSecret s
 
 // ScheduleContainer 调度容器到最佳节点
 func (s *Scheduler) ScheduleContainer(ctx context.Context, req *model.ScheduleRequest) (*model.ScheduleResponse, error) {
-	targetNode, err := s.nodeService.SelectBestNode()
-	if err != nil {
-		return nil, err
+	var targetNode *model.NodeInfo
+	var err error
+
+	if strings.TrimSpace(req.NodeID) != "" {
+		var ok bool
+		targetNode, ok = s.nodeService.GetNode(req.NodeID)
+		if !ok {
+			return nil, fmt.Errorf("node %s not found", req.NodeID)
+		}
+	} else {
+		targetNode, err = s.nodeService.SelectBestNode()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// If local (Master) or no nodes, create locally
 	if targetNode.Mode == model.ModeMaster {
-		return s.createLocalContainer(ctx, req)
+		return s.createLocalContainer(ctx, req, targetNode)
 	}
 
 	// Forward to worker node
@@ -46,12 +63,66 @@ func (s *Scheduler) ScheduleContainer(ctx context.Context, req *model.ScheduleRe
 }
 
 // createLocalContainer 在本地创建容器
-func (s *Scheduler) createLocalContainer(ctx context.Context, req *model.ScheduleRequest) (*model.ScheduleResponse, error) {
-	// TODO: Implement actual container creation
+func (s *Scheduler) createLocalContainer(ctx context.Context, req *model.ScheduleRequest, node *model.NodeInfo) (*model.ScheduleResponse, error) {
+	_, _, err := s.dockerRepo.ImageInspectWithRaw(ctx, req.Image)
+	if err != nil {
+		reader, pullErr := s.dockerRepo.ImagePull(ctx, req.Image, types.ImagePullOptions{})
+		if pullErr != nil {
+			return nil, pullErr
+		}
+		defer reader.Close()
+		_, _ = bytes.NewBuffer(nil).ReadFrom(reader)
+	}
+
+	containerConfig := &container.Config{
+		Image: req.Image,
+	}
+
+	for key, value := range req.Env {
+		containerConfig.Env = append(containerConfig.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	hostConfig := &container.HostConfig{}
+	if len(req.Ports) > 0 {
+		portBindings := nat.PortMap{}
+		exposedPorts := nat.PortSet{}
+		for _, mapping := range req.Ports {
+			parts := strings.Split(mapping, ":")
+			if len(parts) != 2 {
+				continue
+			}
+			hostPort := strings.TrimSpace(parts[0])
+			containerPort := strings.TrimSpace(parts[1])
+			if hostPort == "" || containerPort == "" {
+				continue
+			}
+			port := nat.Port(containerPort + "/tcp")
+			exposedPorts[port] = struct{}{}
+			portBindings[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
+		}
+		containerConfig.ExposedPorts = exposedPorts
+		hostConfig.PortBindings = portBindings
+	}
+
+	resp, err := s.dockerRepo.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.dockerRepo.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		_ = s.dockerRepo.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+		return nil, err
+	}
+
 	return &model.ScheduleResponse{
 		Status:   "success",
-		NodeID:   "local",
-		NodeName: "Master",
+		NodeID:   node.ID,
+		NodeName: node.Name,
+		Container: map[string]interface{}{
+			"status": "running",
+			"id":     resp.ID[:12],
+			"name":   req.Name,
+		},
 	}, nil
 }
 
@@ -72,15 +143,26 @@ func (s *Scheduler) forwardToWorker(ctx context.Context, workerAddr string, req 
 	httpReq.Header.Set("X-Node-ID", "master")
 	httpReq.Header.Set("X-Node-Token", s.generateNodeToken("master"))
 
-	// TODO: Add timeout
-	resp, err := http.DefaultClient.Do(httpReq)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var errResp map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if message, ok := errResp["error"].(string); ok && message != "" {
+			return nil, fmt.Errorf("worker request failed: %s", message)
+		}
+		return nil, fmt.Errorf("worker request failed with status %s", resp.Status)
+	}
+
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
 
 	return &model.ScheduleResponse{
 		Status:   "success",

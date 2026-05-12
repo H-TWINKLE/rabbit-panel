@@ -21,7 +21,7 @@ export const volumeApi = {
    * @returns Created volume info
    */
   async create(data: CreateVolumeRequest): Promise<VolumeInfo> {
-    const response = await request.post<VolumeInfo>('/volumes', data)
+    const response = await request.post<VolumeInfo>('/volumes/create', data)
     return response.data
   },
 
@@ -30,7 +30,7 @@ export const volumeApi = {
    * @param name Volume name
    */
   async remove(name: string): Promise<void> {
-    await request.delete(`/volumes/${encodeURIComponent(name)}`)
+    await request.post('/volumes/remove', { name })
   },
 
   /**
@@ -48,8 +48,12 @@ export const volumeApi = {
    * @returns Volume info
    */
   async inspect(name: string): Promise<VolumeInfo> {
-    const response = await request.get<VolumeInfo>(`/volumes/${encodeURIComponent(name)}`)
-    return response.data
+    const volumes = await volumeApi.list()
+    const found = volumes.find((volume) => volume.name === name)
+    if (!found) {
+      throw new Error(`Volume ${name} not found`)
+    }
+    return found
   },
 }
 

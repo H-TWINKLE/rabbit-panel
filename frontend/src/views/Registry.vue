@@ -38,11 +38,11 @@
                   type="primary"
                   size="small"
                   link
-                  :loading="testingId === registry.id"
+                  :loading="testingId === registry.url"
                   @click="handleTest(registry)"
                 >
                   <el-icon><Connection /></el-icon>
-                  {{ testingId === registry.id ? t('registry.testing') : t('registry.testConnection') }}
+                  {{ testingId === registry.url ? t('registry.testing') : t('registry.testConnection') }}
                 </el-button>
               </div>
             </div>
@@ -72,7 +72,7 @@
               :title="t('registry.confirmRemove')"
               :confirm-button-text="t('common.confirm')"
               :cancel-button-text="t('common.cancel')"
-              @confirm="handleRemove(registry.id)"
+              @confirm="handleRemove(registry.url)"
             >
               <template #reference>
                 <el-button type="danger" size="small">
@@ -154,8 +154,11 @@ async function handleRemove(id: string) {
 
 async function handleTest(registry: RegistryInfo) {
   try {
-    testingId.value = registry.id
-    const result = await registryStore.testRegistry(registry.id)
+    testingId.value = registry.url
+    const result = await registryStore.testRegistry(registry.url, {
+      url: registry.url,
+      username: registry.username,
+    })
     if (result.success) {
       ElMessage.success(t('registry.testSuccess'))
     } else {

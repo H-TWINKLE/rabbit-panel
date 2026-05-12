@@ -31,12 +31,15 @@
                 <el-button text size="small" @click="updateStore.fetchTaskStatus()">{{ t('common.refresh') }}</el-button>
               </div>
             </div>
-            <el-progress :percentage="displayProgress" :status="progressStatus" :indeterminate="!updateStore.taskStatus.progress_known && updateStore.taskStatus.status === 'running'" :duration="3" />
+            <el-progress :percentage="displayProgress" :status="progressStatus" :indeterminate="updateStore.taskStatus.status === 'running' && !updateStore.taskStatus.progress_known" :duration="3" />
             <div class="meta">
               <span>{{ t('update.currentStage') }}: {{ updateStore.taskStatus.stage || '-' }}</span>
               <span>{{ t('update.lastUpdateStatus') }}: {{ updateStore.taskStatus.status || '-' }}</span>
               <span>{{ t('update.lastUpdateTime') }}: {{ formatTime(updateStore.taskStatus.last_update_time) }}</span>
             </div>
+            <el-alert v-if="updateStore.taskStatus.status === 'downloaded'" type="success" :closable="false" show-icon>
+              <template #title>{{ t('update.downloadReady') }}</template>
+            </el-alert>
             <el-alert v-if="updateStore.taskStatus.last_error" type="error" :closable="false" show-icon>
               <template #title>{{ updateStore.taskStatus.last_error }}</template>
             </el-alert>
@@ -57,8 +60,11 @@
       <template #footer>
         <div class="footer-actions">
           <el-button @click="updateStore.fetchUpdateInfo()">{{ t('update.checkNow') }}</el-button>
-          <el-button type="primary" :disabled="!updateStore.info?.can_update || updateStore.taskStatus?.status === 'running'" :loading="updateStore.running" @click="handleRunUpdate">
-            {{ t('update.updateNow') }}
+          <el-button type="primary" :disabled="!updateStore.info?.has_update || !updateStore.info?.can_update || updateStore.taskStatus?.status === 'running' || updateStore.taskStatus?.status === 'downloaded' || updateStore.taskStatus?.status === 'applying'" :loading="updateStore.running" @click="handleRunUpdate">
+            {{ t('update.downloadNow') }}
+          </el-button>
+          <el-button type="warning" :disabled="updateStore.taskStatus?.status !== 'downloaded'" :loading="updateStore.running" @click="handleApplyUpdate">
+            {{ t('update.applyNow') }}
           </el-button>
           <el-button @click="handleRemindLater">{{ t('update.remindLater') }}</el-button>
           <el-button :disabled="!updateStore.info?.latest_version" @click="handleIgnore">{{ t('update.ignoreVersion') }}</el-button>
@@ -68,12 +74,12 @@
     </el-dialog>
 
     <transition name="fade">
-      <div v-if="updateStore.minimized && updateStore.taskStatus && updateStore.taskStatus.status === 'running'" class="mini-progress" @click="restore">
+      <div v-if="updateStore.minimized && updateStore.taskStatus && updateStore.taskStatus.status === 'running' && updateStore.taskStatus.stage === 'downloading'" class="mini-progress" @click="restore">
         <div class="mini-header">
           <strong>{{ t('update.updatingNow') }}</strong>
           <span>{{ updateStore.taskStatus.progress_known ? `${updateStore.taskStatus.progress}%` : '...' }}</span>
         </div>
-        <el-progress :percentage="displayProgress" :show-text="false" :indeterminate="!updateStore.taskStatus.progress_known" :duration="3" />
+        <el-progress :percentage="displayProgress" :show-text="false" :indeterminate="updateStore.taskStatus.status === 'running' && !updateStore.taskStatus.progress_known" :duration="3" />
         <div class="mini-stage">{{ updateStore.taskStatus.stage }}</div>
       </div>
     </transition>
@@ -134,6 +140,15 @@ function formatTime(value?: string): string {
 async function handleRunUpdate() {
   try {
     const message = await updateStore.runUpdate()
+    ElMessage.success(message)
+  } catch {
+    // handled by interceptor
+  }
+}
+
+async function handleApplyUpdate() {
+  try {
+    const message = await updateStore.applyUpdate()
     ElMessage.success(message)
   } catch {
     // handled by interceptor

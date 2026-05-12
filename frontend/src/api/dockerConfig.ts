@@ -29,7 +29,7 @@ export const dockerConfigApi = {
    * @param config Partial config to update
    */
   async updateConfig(config: Partial<DockerConfig>): Promise<void> {
-    await request.put('/docker/config', config)
+    await request.post('/docker/config/update', config)
   },
 
   /**

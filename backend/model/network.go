@@ -16,6 +16,23 @@ type NetworkInfo struct {
 	Created       string   `json:"created"`
 }
 
+// ConnectedContainer 网络内已连接容器信息
+type ConnectedContainer struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	IPAddress  string `json:"ipAddress"`
+	MacAddress string `json:"macAddress"`
+}
+
+// NetworkDetail 网络详情
+type NetworkDetail struct {
+	NetworkInfo
+	ConnectedContainers []ConnectedContainer   `json:"connectedContainers"`
+	IPAM                interface{}            `json:"ipam"`
+	Options             map[string]string      `json:"options"`
+	Labels              map[string]string      `json:"labels"`
+}
+
 // NetworkConnectRequest 网络连接请求
 type NetworkConnectRequest struct {
 	NetworkID   string `json:"network_id"`

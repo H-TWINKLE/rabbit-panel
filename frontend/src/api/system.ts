@@ -25,6 +25,11 @@ export const systemApi = {
     return response.data
   },
 
+  async applyUpdate(): Promise<{ message: string }> {
+    const response = await request.post<{ message: string }>('/system/update/apply')
+    return response.data
+  },
+
   async getUpdateStatus(): Promise<UpdateTaskStatus> {
     const response = await request.get<UpdateTaskStatus>('/system/update/status')
     return response.data

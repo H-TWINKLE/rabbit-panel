@@ -312,6 +312,9 @@ async function handleRefresh() {
 }
 
 async function handleSelectProject(name: string) {
+  if (selectedProject.value === name) {
+    return
+  }
   if (editorRef.value?.hasChanges) {
     try {
       await ElMessageBox.confirm(

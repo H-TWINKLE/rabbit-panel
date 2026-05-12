@@ -47,6 +47,8 @@ type UpdateSettingsRecord struct {
 	LastUpdateTime   string `json:"last_update_time"`
 	LastUpdateStatus string `json:"last_update_status"`
 	LastUpdateError  string `json:"last_update_error"`
+	PreparedBinaryPath string `json:"prepared_binary_path"`
+	PreparedVersion    string `json:"prepared_version"`
 }
 
 // FileRepository 文件系统实现

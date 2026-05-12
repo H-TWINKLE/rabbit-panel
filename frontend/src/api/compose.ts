@@ -51,7 +51,7 @@ export const composeApi = {
       params: { project },
       transformResponse: [(data) => data], // Return raw string
     })
-    return response.data
+    return response.data as unknown as string
   },
 
   /**

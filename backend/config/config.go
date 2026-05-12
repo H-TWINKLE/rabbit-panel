@@ -113,7 +113,7 @@ func (app *App) initServices() {
 	app.FileRepo.EnsureComposeDir()
 
 	// Node service (must be initialized first for Master mode)
-	app.NodeService = service.NewNodeService(app.DockerRepo, app.CacheRepo, app.Mode, app.NodeSecret)
+	app.NodeService = service.NewNodeService(app.DockerRepo, app.CacheRepo, app.Mode, app.NodeSecret, app.NodeID, app.Host, app.Port)
 
 	// Core services
 	app.ContainerService = service.NewContainerService(app.DockerRepo, app.CacheRepo)

@@ -15,6 +15,9 @@ export const useUpdateStore = defineStore('update', () => {
   let autoHideTimer: ReturnType<typeof setTimeout> | null = null
 
   const shouldShowIndicator = computed(() => {
+    if (taskStatus.value?.status === 'running' || taskStatus.value?.status === 'downloaded' || taskStatus.value?.status === 'failed' || taskStatus.value?.status === 'applying') {
+      return true
+    }
     if (!info.value) return false
     if (!info.value.has_update || info.value.ignored) return false
     return true
@@ -25,17 +28,29 @@ export const useUpdateStore = defineStore('update', () => {
     return bannerDismissedVersion.value !== info.value.latest_version
   })
 
-  async function fetchUpdateInfo(): Promise<void> {
-    loading.value = true
-    error.value = null
+  async function loadUpdateInfo(options?: { includeTaskStatus?: boolean }): Promise<void> {
     try {
       const previousVersion = info.value?.latest_version || ''
       info.value = await systemApi.checkUpdate()
       if (previousVersion !== info.value.latest_version) {
         bannerDismissedVersion.value = ''
       }
+      if (options?.includeTaskStatus) {
+        await fetchTaskStatus({ refreshInfoOnFinish: false })
+        if (taskStatus.value?.status === 'running' || taskStatus.value?.status === 'applying') {
+          startTaskPolling()
+        }
+      }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to check updates'
+    }
+  }
+
+  async function fetchUpdateInfo(): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      await loadUpdateInfo({ includeTaskStatus: true })
     } finally {
       loading.value = false
     }
@@ -57,11 +72,29 @@ export const useUpdateStore = defineStore('update', () => {
     }
   }
 
-  async function fetchTaskStatus(): Promise<void> {
+  async function applyUpdate(): Promise<string> {
+    running.value = true
+    try {
+      const result = await systemApi.applyUpdate()
+      if (info.value) {
+        info.value.last_update_status = 'applying'
+      }
+      minimized.value = false
+      await fetchTaskStatus()
+      startTaskPolling()
+      return result.message
+    } finally {
+      running.value = false
+    }
+  }
+
+  async function fetchTaskStatus(options?: { refreshInfoOnFinish?: boolean }): Promise<void> {
     taskStatus.value = await systemApi.getUpdateStatus()
-    if (taskStatus.value?.status === 'success' || taskStatus.value?.status === 'failed') {
+    if (taskStatus.value?.status === 'success' || taskStatus.value?.status === 'failed' || taskStatus.value?.status === 'downloaded') {
       stopTaskPolling()
-      await fetchUpdateInfo()
+      if (options?.refreshInfoOnFinish !== false) {
+        await loadUpdateInfo()
+      }
       if (taskStatus.value.status === 'success') {
         if (autoHideTimer) clearTimeout(autoHideTimer)
         autoHideTimer = setTimeout(() => {
@@ -155,6 +188,7 @@ export const useUpdateStore = defineStore('update', () => {
     shouldShowBanner,
     fetchUpdateInfo,
     runUpdate,
+    applyUpdate,
     fetchTaskStatus,
     startTaskPolling,
     stopTaskPolling,

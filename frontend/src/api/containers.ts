@@ -49,6 +49,61 @@ export const containerApi = {
     return { container_id: response.data.container_id }
   },
 
+  async createStream(
+    data: CreateContainerRequest,
+    onMessage: (entry: { type: string; message: string }) => void,
+    signal?: AbortSignal
+  ): Promise<{ container_id?: string }> {
+    const token = getToken()
+    const response = await fetch('/api/containers/run/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+      signal,
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error(await response.text() || 'Request failed')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let containerId = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
+
+      for (const event of events) {
+        const line = event.split('\n').find((item) => item.startsWith('data: '))
+        if (!line) continue
+        try {
+          const payload = JSON.parse(line.slice(6))
+          const type = payload.type || 'log'
+          if (type === 'success' && payload.id) {
+            containerId = payload.id
+          }
+          onMessage({
+            type,
+            message: payload.message || payload.id || '',
+          })
+        } catch {
+          // ignore malformed event
+        }
+      }
+    }
+
+    return containerId ? { container_id: containerId } : {}
+  },
+
   /**
    * Create container using raw docker run command (SSE stream)
    * Note: This method is deprecated, use createRawStream instead for POST requests
@@ -137,6 +192,23 @@ export const containerApi = {
   logs(containerId: string, tail: number | string = 100, follow: boolean = true): EventSource {
     const token = getToken()
     return new EventSource(`/api/containers/logs?id=${encodeURIComponent(containerId)}&tail=${tail}&follow=${follow}&token=${encodeURIComponent(token || '')}`)
+  },
+
+  async logsOnce(containerId: string, tail: number | string = 'all'): Promise<string[]> {
+    const token = getToken()
+    const response = await fetch(`/api/containers/logs?id=${encodeURIComponent(containerId)}&tail=${tail}&follow=false&token=${encodeURIComponent(token || '')}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!response.ok) {
+      throw new Error(await response.text() || `HTTP ${response.status}`)
+    }
+    const text = await response.text()
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => line.slice(6))
+      .filter((line) => line.trim() !== '')
   },
 
   /**
@@ -291,7 +363,7 @@ export const containerApi = {
   getTerminalWsUrl(containerId: string): string {
     const token = getToken()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}/api/containers/terminal/ws?id=${encodeURIComponent(containerId)}&token=${encodeURIComponent(token || '')}`
+    return `${protocol}//${window.location.host}/api/containers/terminal?id=${encodeURIComponent(containerId)}&token=${encodeURIComponent(token || '')}`
   },
 }
 

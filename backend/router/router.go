@@ -1,9 +1,12 @@
 package router
 
 import (
+	"archive/tar"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -11,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"path"
 	"runtime"
 	"strings"
 	"time"
@@ -20,6 +24,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	config2 "rabbit-panel/config"
 	execlib "rabbit-panel/exec"
@@ -139,6 +144,7 @@ func (r *Router) Register() {
 		// Agent routes
 		apiAuth.POST("/agent/chat", r.handleAgentChat)
 		apiAuth.GET("/agent/history", r.handleAgentHistory)
+		apiAuth.POST("/agent/history", r.handleAgentHistory)
 		apiAuth.DELETE("/agent/history", r.handleAgentHistory)
 		apiAuth.GET("/settings/agent", r.handleAgentConfig)
 		apiAuth.POST("/settings/agent", r.handleAgentConfig)
@@ -146,6 +152,7 @@ func (r *Router) Register() {
 		apiAuth.GET("/system/update/check", r.handleUpdateCheck)
 		apiAuth.GET("/system/update/status", r.handleUpdateStatus)
 		apiAuth.POST("/system/update/run", r.handleUpdateRun)
+		apiAuth.POST("/system/update/apply", r.handleUpdateApply)
 		apiAuth.POST("/system/update/ignore", r.handleUpdateIgnore)
 		apiAuth.POST("/system/update/clear-ignore", r.handleUpdateClearIgnore)
 		apiAuth.POST("/system/update/clear-state", r.handleUpdateClearState)
@@ -723,23 +730,24 @@ func (r *Router) handleContainerLogs(c *gin.Context) {
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 
-	reader, err := r.app.ContainerService.GetContainerLogs(ctx, id, tail)
+	reader, err := r.app.ContainerService.GetContainerLogs(ctx, id, tail, follow)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer reader.Close()
 
-	if follow {
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
 
-		flusher, ok := c.Writer.(http.Flusher)
-		if !ok {
-			return
-		}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return
+	}
+
+	if follow {
 		header := make([]byte, 8)
 		for {
 			_, err := io.ReadFull(reader, header)
@@ -762,7 +770,22 @@ func (r *Router) handleContainerLogs(c *gin.Context) {
 			}
 		}
 	} else {
-		c.DataFromReader(http.StatusOK, -1, "text/plain", reader, nil)
+		var stdout, stderr bytes.Buffer
+		_, _ = stdcopy.StdCopy(&stdout, &stderr, reader)
+		content := stdout.String()
+		if stderr.Len() > 0 {
+			if content != "" {
+				content += "\n"
+			}
+			content += stderr.String()
+		}
+		for _, line := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+			line = strings.TrimRight(line, "\r\n\t ")
+			if line != "" {
+				fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			}
+		}
+		flusher.Flush()
 	}
 }
 
@@ -790,7 +813,100 @@ func (r *Router) handleContainerInspect(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, inspect)
+
+	ports := []map[string]string{}
+	for containerPort, bindings := range inspect.HostConfig.PortBindings {
+		for _, binding := range bindings {
+			ports = append(ports, map[string]string{
+				"host":      binding.HostPort,
+				"container": string(containerPort),
+				"hostIP":    binding.HostIP,
+			})
+		}
+	}
+
+	volumes := []map[string]string{}
+	for _, bind := range inspect.HostConfig.Binds {
+		parts := strings.SplitN(bind, ":", 3)
+		vol := map[string]string{"host": "", "container": "", "mode": "rw"}
+		if len(parts) >= 1 {
+			vol["host"] = parts[0]
+		}
+		if len(parts) >= 2 {
+			vol["container"] = parts[1]
+		}
+		if len(parts) >= 3 {
+			vol["mode"] = parts[2]
+		}
+		volumes = append(volumes, vol)
+	}
+
+	envs := []map[string]string{}
+	for _, env := range inspect.Config.Env {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envs = append(envs, map[string]string{
+				"key":   parts[0],
+				"value": parts[1],
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":            inspect.ID[:12],
+		"fullId":        inspect.ID,
+		"name":          strings.TrimPrefix(inspect.Name, "/"),
+		"image":         inspect.Config.Image,
+		"imageId":       inspect.Image,
+		"created":       inspect.Created,
+		"started":       inspect.State.StartedAt,
+		"finished":      inspect.State.FinishedAt,
+		"state":         inspect.State.Status,
+		"running":       inspect.State.Running,
+		"paused":        inspect.State.Paused,
+		"pid":           inspect.State.Pid,
+		"exitCode":      inspect.State.ExitCode,
+		"platform":      inspect.Platform,
+		"hostname":      inspect.Config.Hostname,
+		"domainname":    inspect.Config.Domainname,
+		"networkMode":   string(inspect.HostConfig.NetworkMode),
+		"ports":         ports,
+		"dns":           inspect.HostConfig.DNS,
+		"dnsSearch":     inspect.HostConfig.DNSSearch,
+		"extraHosts":    inspect.HostConfig.ExtraHosts,
+		"macAddress":    inspect.NetworkSettings.MacAddress,
+		"ipAddress":     inspect.NetworkSettings.IPAddress,
+		"gateway":       inspect.NetworkSettings.Gateway,
+		"volumes":       volumes,
+		"workingDir":    inspect.Config.WorkingDir,
+		"readOnly":      inspect.HostConfig.ReadonlyRootfs,
+		"env":           envs,
+		"cmd":           inspect.Config.Cmd,
+		"entrypoint":    inspect.Config.Entrypoint,
+		"user":          inspect.Config.User,
+		"tty":           inspect.Config.Tty,
+		"stdin":         inspect.Config.OpenStdin,
+		"restart":       string(inspect.HostConfig.RestartPolicy.Name),
+		"restartMaxRetry": inspect.HostConfig.RestartPolicy.MaximumRetryCount,
+		"memory":        inspect.HostConfig.Memory / 1024 / 1024,
+		"memorySwap":    inspect.HostConfig.MemorySwap / 1024 / 1024,
+		"memoryRes":     inspect.HostConfig.MemoryReservation / 1024 / 1024,
+		"cpus":          float64(inspect.HostConfig.NanoCPUs) / 1e9,
+		"cpuShares":     inspect.HostConfig.CPUShares,
+		"cpusetCpus":    inspect.HostConfig.CpusetCpus,
+		"cpusetMems":    inspect.HostConfig.CpusetMems,
+		"cpuPeriod":     inspect.HostConfig.CPUPeriod,
+		"cpuQuota":      inspect.HostConfig.CPUQuota,
+		"pidsLimit":     inspect.HostConfig.PidsLimit,
+		"oomKillDisable": inspect.HostConfig.OomKillDisable,
+		"privileged":    inspect.HostConfig.Privileged,
+		"capAdd":        inspect.HostConfig.CapAdd,
+		"capDrop":       inspect.HostConfig.CapDrop,
+		"securityOpt":   inspect.HostConfig.SecurityOpt,
+		"labels":        inspect.Config.Labels,
+		"logDriver":     inspect.HostConfig.LogConfig.Type,
+		"logOptions":    inspect.HostConfig.LogConfig.Config,
+	})
 }
 
 func (r *Router) handleContainerUpdate(c *gin.Context) {
@@ -798,12 +914,13 @@ func (r *Router) handleContainerUpdate(c *gin.Context) {
 		ContainerID string  `json:"container_id"`
 		Memory      int64   `json:"memory"`
 		CPUs        float64 `json:"cpus"`
+		Restart     string  `json:"restart"`
 	}
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
-	err := r.app.TerminalService.UpdateContainer(context.Background(), reqBody.ContainerID, reqBody.Memory, reqBody.CPUs)
+	err := r.app.TerminalService.UpdateContainer(context.Background(), reqBody.ContainerID, reqBody.Memory, reqBody.CPUs, reqBody.Restart)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -838,61 +955,473 @@ func (r *Router) handleContainerRecreate(c *gin.Context) {
 		ContainerID: reqBody.ContainerID,
 		Name:        reqBody.Name,
 		Image:       reqBody.Image,
+		Restart:     reqBody.Restart,
+		Network:     reqBody.Network,
 		Memory:      reqBody.Memory,
 		CPUs:        reqBody.CPUs,
+		Privileged:  reqBody.Privileged,
+		TTY:         reqBody.TTY,
 	}
-	err := r.app.TerminalService.RecreateContainer(context.Background(), execReq)
+	for _, port := range reqBody.Ports {
+		execReq.Ports = append(execReq.Ports, execlib.PortMapping{
+			Host:      port.Host,
+			Container: port.Container,
+		})
+	}
+	for _, volume := range reqBody.Volumes {
+		execReq.Volumes = append(execReq.Volumes, execlib.VolumeMapping{
+			Host:      volume.Host,
+			Container: volume.Container,
+		})
+	}
+	for _, env := range reqBody.Env {
+		execReq.Env = append(execReq.Env, execlib.EnvVar{
+			Key:   env.Key,
+			Value: env.Value,
+		})
+	}
+	newContainerID, err := r.app.TerminalService.RecreateContainer(context.Background(), execReq)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "container_id": newContainerID})
+}
+
+func (r *Router) handleContainerStats(c *gin.Context) {
+	id := c.Query("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "container id is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	containerInfo, err := r.app.DockerRepo.ContainerInspect(ctx, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	configuredMemoryLimit := containerInfo.HostConfig.Memory
+	statsResp, err := r.app.DockerRepo.ContainerStats(ctx, id, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer statsResp.Body.Close()
+
+	decoder := json.NewDecoder(statsResp.Body)
+	var stats1 types.StatsJSON
+	if err := decoder.Decode(&stats1); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var stats types.StatsJSON
+	if err := decoder.Decode(&stats); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	cpuPercent := 0.0
+	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats1.CPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(stats.CPUStats.SystemUsage - stats1.CPUStats.SystemUsage)
+	onlineCPUs := stats.CPUStats.OnlineCPUs
+	if onlineCPUs == 0 {
+		onlineCPUs = uint32(len(stats.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if onlineCPUs == 0 {
+		onlineCPUs = 1
+	}
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(onlineCPUs) * 100.0
+	}
+
+	memoryLimit := int64(stats.MemoryStats.Limit)
+	hasMemoryLimit := configuredMemoryLimit > 0
+	if hasMemoryLimit {
+		memoryLimit = configuredMemoryLimit
+	}
+
+	memoryUsage := int64(stats.MemoryStats.Usage)
+	if stats.MemoryStats.Stats != nil {
+		if cache, ok := stats.MemoryStats.Stats["cache"]; ok {
+			memoryUsage -= int64(cache)
+		} else if totalInactiveFile, ok := stats.MemoryStats.Stats["total_inactive_file"]; ok {
+			memoryUsage -= int64(totalInactiveFile)
+		} else if inactiveFile, ok := stats.MemoryStats.Stats["inactive_file"]; ok {
+			memoryUsage -= int64(inactiveFile)
+		}
+	}
+	if memoryUsage < 0 {
+		memoryUsage = int64(stats.MemoryStats.Usage)
+	}
+
+	memoryPercent := 0.0
+	if memoryLimit > 0 {
+		memoryPercent = float64(memoryUsage) / float64(memoryLimit) * 100.0
+	}
+
+	var networkRx, networkTx int64
+	for _, netStats := range stats.Networks {
+		networkRx += int64(netStats.RxBytes)
+		networkTx += int64(netStats.TxBytes)
+	}
+
+	var blockRead, blockWrite int64
+	for _, bioEntry := range stats.BlkioStats.IoServiceBytesRecursive {
+		switch bioEntry.Op {
+		case "read", "Read":
+			blockRead += int64(bioEntry.Value)
+		case "write", "Write":
+			blockWrite += int64(bioEntry.Value)
+		}
+	}
+
+	c.JSON(http.StatusOK, model.ContainerStats{
+		CPUPercent:     cpuPercent,
+		CPUCores:       int(onlineCPUs),
+		MemoryUsage:    memoryUsage,
+		MemoryLimit:    memoryLimit,
+		MemoryPercent:  memoryPercent,
+		HasMemoryLimit: hasMemoryLimit,
+		NetworkRx:      networkRx,
+		NetworkTx:      networkTx,
+		BlockRead:      blockRead,
+		BlockWrite:     blockWrite,
+		PIDs:           stats.PidsStats.Current,
+	})
+}
+
+func (r *Router) handleContainerFilesList(c *gin.Context) {
+	id := c.Query("id")
+	path := c.DefaultQuery("path", "/")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "container id is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	execConfig := types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"ls", "-la", path},
+	}
+
+	execID, err := r.app.DockerRepo.ContainerExecCreate(ctx, id, execConfig)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := r.app.DockerRepo.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Close()
+
+	var stdout, stderr bytes.Buffer
+	_, _ = stdcopy.StdCopy(&stdout, &stderr, resp.Reader)
+	if stderr.Len() > 0 && (strings.Contains(stderr.String(), "No such file") || strings.Contains(stderr.String(), "not found")) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, parseLsOutput(stdout.String(), path))
+}
+
+func (r *Router) handleContainerFileMkdir(c *gin.Context) {
+	var reqBody struct {
+		ContainerID string `json:"container_id"`
+		Path        string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	execID, err := r.app.DockerRepo.ContainerExecCreate(ctx, reqBody.ContainerID, types.ExecConfig{
+		AttachStderr: true,
+		Cmd:          []string{"mkdir", "-p", reqBody.Path},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := r.app.DockerRepo.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Close()
+	var stderr bytes.Buffer
+	_, _ = stdcopy.StdCopy(io.Discard, &stderr, resp.Reader)
+	if stderr.Len() > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": strings.TrimSpace(stderr.String())})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+func (r *Router) handleContainerFileDelete(c *gin.Context) {
+	var reqBody struct {
+		ContainerID string `json:"container_id"`
+		Path        string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	cleanPath := path.Clean(reqBody.Path)
+	for _, protected := range []string{"/", "/bin", "/sbin", "/usr", "/lib", "/lib64", "/etc", "/var", "/root", "/home"} {
+		if cleanPath == protected {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cannot delete protected path"})
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	execID, err := r.app.DockerRepo.ContainerExecCreate(ctx, reqBody.ContainerID, types.ExecConfig{
+		AttachStderr: true,
+		Cmd:          []string{"rm", "-rf", reqBody.Path},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := r.app.DockerRepo.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Close()
+	var stderr bytes.Buffer
+	_, _ = stdcopy.StdCopy(io.Discard, &stderr, resp.Reader)
+	if stderr.Len() > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": strings.TrimSpace(stderr.String())})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+func (r *Router) handleContainerFileUpload(c *gin.Context) {
+	var reqBody struct {
+		ContainerID string `json:"container_id"`
+		Path        string `json:"path"`
+		Filename    string `json:"filename"`
+		Content     string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	fileContent, err := base64.StdEncoding.DecodeString(reqBody.Content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid base64 content"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: reqBody.Filename,
+		Mode: 0644,
+		Size: int64(len(fileContent)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := tw.Write(fileContent); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := tw.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := r.app.DockerRepo.CopyToContainer(ctx, reqBody.ContainerID, reqBody.Path, &buf, types.CopyToContainerOptions{}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
-func (r *Router) handleContainerStats(c *gin.Context) {
+func (r *Router) handleContainerFileDownload(c *gin.Context) {
 	id := c.Query("id")
-	stats, err := r.app.DockerRepo.ContainerStats(context.Background(), id, false)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	filePath := c.Query("path")
+	if id == "" || filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing id or path"})
 		return
 	}
-	c.JSON(http.StatusOK, stats)
-}
-
-func (r *Router) handleContainerFilesList(c *gin.Context) {
-	id := c.Query("id")
-	path := c.DefaultQuery("path", "/")
-	reader, _, err := r.app.TerminalService.GetContainerFile(context.Background(), id, path)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	reader, stat, err := r.app.DockerRepo.CopyFromContainer(ctx, id, filePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer reader.Close()
-	c.DataFromReader(http.StatusOK, -1, "application/json", reader, nil)
-}
-
-func (r *Router) handleContainerFileMkdir(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
-}
-
-func (r *Router) handleContainerFileDelete(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
-}
-
-func (r *Router) handleContainerFileUpload(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
-}
-
-func (r *Router) handleContainerFileDownload(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	tr := tar.NewReader(reader)
+	hdr, err := tr.Next()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	fileName := path.Base(filePath)
+	if stat.Mode.IsDir() {
+		fileName += ".tar"
+		c.Header("Content-Type", "application/x-tar")
+	} else {
+		c.Header("Content-Type", "application/octet-stream")
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	c.Header("Content-Length", fmt.Sprintf("%d", hdr.Size))
+	_, _ = io.Copy(c.Writer, tr)
 }
 
 func (r *Router) handleContainerFileRead(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	id := c.Query("id")
+	filePath := c.Query("path")
+	if id == "" || filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing id or path"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	execID, err := r.app.DockerRepo.ContainerExecCreate(ctx, id, types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"head", "-c", "1048576", filePath},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := r.app.DockerRepo.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Close()
+	var stdout, stderr bytes.Buffer
+	_, _ = stdcopy.StdCopy(&stdout, &stderr, resp.Reader)
+	if stderr.Len() > 0 && strings.Contains(stderr.String(), "No such file") {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": stdout.String()})
 }
 
 func (r *Router) handleContainerFileWrite(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	var reqBody struct {
+		ContainerID string `json:"container_id"`
+		Path        string `json:"path"`
+		Content     string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	fileName := path.Base(reqBody.Path)
+	dirPath := path.Dir(reqBody.Path)
+	hdr := &tar.Header{
+		Name: fileName,
+		Mode: 0644,
+		Size: int64(len(reqBody.Content)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := tw.Write([]byte(reqBody.Content)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := tw.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := r.app.DockerRepo.CopyToContainer(ctx, reqBody.ContainerID, dirPath, &buf, types.CopyToContainerOptions{}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
+func parseLsOutput(output string, basePath string) []model.FileInfo {
+	files := make([]model.FileInfo, 0)
+	lines := strings.Split(output, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "total") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+
+		mode := fields[0]
+		var name string
+		var modTime string
+		var size int64
+
+		for i := 3; i < len(fields) && i < 6; i++ {
+			if n, err := fmt.Sscanf(fields[i], "%d", &size); n == 1 && err == nil {
+				remaining := fields[i+1:]
+				if len(remaining) >= 4 {
+					modTime = strings.Join(remaining[:3], " ")
+					name = strings.Join(remaining[3:], " ")
+				} else if len(remaining) >= 3 {
+					modTime = strings.Join(remaining[:2], " ")
+					name = strings.Join(remaining[2:], " ")
+				} else if len(remaining) >= 2 {
+					modTime = remaining[0]
+					name = strings.Join(remaining[1:], " ")
+				} else if len(remaining) == 1 {
+					name = remaining[0]
+				}
+				break
+			}
+		}
+
+		if name == "" || name == "." || name == ".." {
+			continue
+		}
+
+		if strings.Contains(name, " -> ") {
+			parts := strings.SplitN(name, " -> ", 2)
+			name = parts[0]
+		}
+
+		isDir := strings.HasPrefix(mode, "d") || strings.HasPrefix(mode, "l")
+		filePath := path.Join(basePath, name)
+
+		files = append(files, model.FileInfo{
+			Name:    name,
+			Path:    filePath,
+			Size:    size,
+			Mode:    mode,
+			ModTime: modTime,
+			IsDir:   isDir,
+		})
+	}
+
+	return files
 }
 
 // === Image Handlers ===
@@ -1112,6 +1641,8 @@ func (r *Router) handleVolumesCreate(c *gin.Context) {
 	var reqBody struct {
 		Name   string `json:"name"`
 		Driver string `json:"driver"`
+		DriverOpts map[string]string `json:"driverOpts"`
+		Labels map[string]string `json:"labels"`
 	}
 	if err := c.ShouldBindJSON(&reqBody); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
@@ -1125,12 +1656,14 @@ func (r *Router) handleVolumesCreate(c *gin.Context) {
 	err := r.app.VolumeService.CreateVolume(context.Background(), &model.CreateVolumeRequest{
 		Name:   reqBody.Name,
 		Driver: driver,
+		DriverOpts: reqBody.DriverOpts,
+		Labels: reqBody.Labels,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	c.JSON(http.StatusOK, gin.H{"name": reqBody.Name, "driver": driver, "status": "success"})
 }
 
 func (r *Router) handleVolumesRemove(c *gin.Context) {
@@ -1196,18 +1729,24 @@ func (r *Router) handleComposeFile(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"content": content})
+		c.String(http.StatusOK, content)
 	} else if c.Request.Method == http.MethodPost {
 		var reqBody struct {
+			Project string `json:"project"`
 			Content string `json:"content"`
 		}
 		if err := c.ShouldBindJSON(&reqBody); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		err := r.app.ComposeService.SaveProjectFile(name, reqBody.Content)
+		targetProject := name
+		if strings.TrimSpace(targetProject) == "" {
+			targetProject = strings.TrimSpace(reqBody.Project)
+		}
+		err := r.app.ComposeService.SaveProjectFile(targetProject, reqBody.Content)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	}
@@ -1227,11 +1766,40 @@ func (r *Router) handleComposeAction(c *gin.Context) {
 		return
 	}
 
-	err := r.app.ComposeService.ExecuteAction(reqBody.Project, reqBody.Action, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
 		return
 	}
+
+	var output bytes.Buffer
+	err := r.app.ComposeService.ExecuteAction(reqBody.Project, reqBody.Action, &output)
+	logs := strings.ReplaceAll(output.String(), "\r\n", "\n")
+	for _, line := range strings.Split(logs, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(c.Writer, "event: log\n")
+		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+		flusher.Flush()
+	}
+	if err != nil {
+		fmt.Fprintf(c.Writer, "event: error\n")
+		fmt.Fprintf(c.Writer, "data: %s\n\n", err.Error())
+		fmt.Fprintf(c.Writer, "event: done\n")
+		fmt.Fprintf(c.Writer, "data: failed\n\n")
+		flusher.Flush()
+		return
+	}
+	fmt.Fprintf(c.Writer, "event: done\n")
+	fmt.Fprintf(c.Writer, "data: success\n\n")
+	flusher.Flush()
 }
 
 func (r *Router) handleComposeDelete(c *gin.Context) {
@@ -1253,12 +1821,12 @@ func (r *Router) handleComposeDelete(c *gin.Context) {
 
 func (r *Router) handleComposeStatus(c *gin.Context) {
 	name := c.Query("project")
-	content, err := r.app.ComposeService.GetProjectFile(name)
+	status, err := r.app.ComposeService.FetchProjectStatus(name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"content": content})
+	c.JSON(http.StatusOK, status)
 }
 
 // === Registry Handlers ===
@@ -1332,12 +1900,41 @@ func (r *Router) handleRegistriesTest(c *gin.Context) {
 // === Docker Config Handlers ===
 
 func (r *Router) handleDockerInfo(c *gin.Context) {
-	info, err := r.app.DockerRepo.Info(context.Background())
+	ctx := context.Background()
+
+	info, err := r.app.DockerRepo.Info(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, info)
+
+	version, err := r.app.DockerRepo.ServerVersion(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.DockerInfo{
+		ServerVersion:      version.Version,
+		APIVersion:         version.APIVersion,
+		OS:                 info.OSType,
+		Arch:               info.Architecture,
+		KernelVersion:      info.KernelVersion,
+		OperatingSystem:    info.OperatingSystem,
+		Containers:         info.Containers,
+		ContainersRunning:  info.ContainersRunning,
+		ContainersPaused:   info.ContainersPaused,
+		ContainersStopped:  info.ContainersStopped,
+		Images:             info.Images,
+		Driver:             info.Driver,
+		MemoryLimit:        info.MemoryLimit,
+		SwapLimit:          info.SwapLimit,
+		CPUCfsPeriod:       info.CPUCfsPeriod,
+		CPUCfsQuota:        info.CPUCfsQuota,
+		IPv4Forwarding:     info.IPv4Forwarding,
+		DockerRootDir:      info.DockerRootDir,
+		IndexServerAddress: info.IndexServerAddress,
+	})
 }
 
 func (r *Router) handleDockerConfigGet(c *gin.Context) {
@@ -1387,13 +1984,47 @@ func (r *Router) handleAgentChat(c *gin.Context) {
 	}
 
 	// Save user message
-	r.app.AgentService.SaveChatMessage("user", reqBody.Message)
+	_ = r.app.AgentService.SaveChatMessage("user", reqBody.Message)
 
-	// Streaming LLM response placeholder
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
-	fmt.Fprintf(c.Writer, "data: {\"type\":\"log\",\"message\":\"AI 助手功能正在开发中...\"}\n\n")
+	c.Header("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
+		return
+	}
+
+	var assistantReply strings.Builder
+	sendChunk := func(chunk string) error {
+		assistantReply.WriteString(chunk)
+		lines := strings.Split(chunk, "\n")
+		for _, line := range lines {
+			if _, err := fmt.Fprintf(c.Writer, "data: %s\n", line); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprint(c.Writer, "\n"); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	if err := r.app.AgentService.StreamChat(c.Request.Context(), reqBody, sendChunk); err != nil {
+		if assistantReply.Len() == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		_ = sendChunk(fmt.Sprintf("\n\n**错误**: %s", err.Error()))
+		return
+	}
+
+	if strings.TrimSpace(assistantReply.String()) != "" {
+		_ = r.app.AgentService.SaveChatMessage("assistant", assistantReply.String())
+	}
 }
 
 func (r *Router) handleAgentHistory(c *gin.Context) {
@@ -1405,8 +2036,25 @@ func (r *Router) handleAgentHistory(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, history)
+	case http.MethodPost:
+		var reqBody struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		if err := c.ShouldBindJSON(&reqBody); err != nil || strings.TrimSpace(reqBody.Role) == "" || strings.TrimSpace(reqBody.Content) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		if err := r.app.AgentService.SaveChatMessage(reqBody.Role, reqBody.Content); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	case http.MethodDelete:
-		r.app.AgentService.CleanupOldMessages(0)
+		if err := r.app.AgentService.ClearChatHistory(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	default:
 		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "method not allowed"})
@@ -1415,12 +2063,12 @@ func (r *Router) handleAgentHistory(c *gin.Context) {
 
 func (r *Router) handleAgentConfig(c *gin.Context) {
 	if c.Request.Method == http.MethodGet {
-		cfg := r.app.AgentService.GetConfig()
+		cfg := r.app.AgentService.MaskedConfig()
 		c.JSON(http.StatusOK, cfg)
 	} else if c.Request.Method == http.MethodPost {
 		var reqBody struct {
-			APIURL  string `json:"apiUrl"`
-			APIKey  string `json:"apiKey"`
+			APIURL  string `json:"api_url"`
+			APIKey  string `json:"api_key"`
 			Model   string `json:"model"`
 			Enabled bool   `json:"enabled"`
 		}

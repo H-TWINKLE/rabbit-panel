@@ -20,7 +20,7 @@ export interface ScheduleRequest {
 export interface ScheduleResponse {
   status: string
   node_id: string
-  node: string
+  node_name: string
   container: {
     status: string
     id: string

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"sort"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/network"
@@ -84,33 +86,61 @@ func (s *NetworkService) RemoveNetwork(ctx context.Context, id string) error {
 }
 
 // InspectNetwork 获取网络详情
-func (s *NetworkService) InspectNetwork(ctx context.Context, id string) (map[string]interface{}, error) {
+func (s *NetworkService) InspectNetwork(ctx context.Context, id string) (*model.NetworkDetail, error) {
 	n, err := s.dockerRepo.NetworkInspect(ctx, id, types.NetworkInspectOptions{Verbose: true})
 	if err != nil {
 		return nil, err
 	}
 
-	result := map[string]interface{}{
-		"id":            n.ID,
-		"name":          n.Name,
-		"driver":        n.Driver,
-		"scope":         n.Scope,
-		"internal":      n.Internal,
-		"attachable":    n.Attachable,
-		"ingress":       n.Ingress,
-		"ipam":          n.IPAM,
-		"options":       n.Options,
-		"labels":        n.Labels,
-		"created":       n.Created.Format("2006-01-02 15:04:05"),
-		"containers":    n.Containers,
+	detail := &model.NetworkDetail{
+		NetworkInfo: model.NetworkInfo{
+			ID:         n.ID,
+			Name:       n.Name,
+			Driver:     n.Driver,
+			Scope:      n.Scope,
+			Internal:   n.Internal,
+			Attachable: n.Attachable,
+			Created:    n.Created.Format("2006-01-02 15:04:05"),
+		},
+		IPAM:    n.IPAM,
+		Options: n.Options,
+		Labels:  n.Labels,
 	}
 
 	if n.IPAM.Config != nil && len(n.IPAM.Config) > 0 {
-		result["subnet"] = n.IPAM.Config[0].Subnet
-		result["gateway"] = n.IPAM.Config[0].Gateway
+		detail.Subnet = n.IPAM.Config[0].Subnet
+		detail.Gateway = n.IPAM.Config[0].Gateway
 	}
 
-	return result, nil
+	if n.Containers != nil {
+		detail.Containers = make([]string, 0, len(n.Containers))
+		detail.ConnectedContainers = make([]model.ConnectedContainer, 0, len(n.Containers))
+		for containerID, endpoint := range n.Containers {
+			shortID := containerID
+			if len(shortID) > 12 {
+				shortID = shortID[:12]
+			}
+			name := strings.TrimPrefix(endpoint.Name, "/")
+			if name == "" {
+				name = shortID
+			}
+			detail.Containers = append(detail.Containers, shortID)
+			detail.ConnectedContainers = append(detail.ConnectedContainers, model.ConnectedContainer{
+				ID:         shortID,
+				Name:       name,
+				IPAddress:  endpoint.IPv4Address,
+				MacAddress: endpoint.MacAddress,
+			})
+		}
+		sort.Strings(detail.Containers)
+		sort.Slice(detail.ConnectedContainers, func(i, j int) bool {
+			return detail.ConnectedContainers[i].Name < detail.ConnectedContainers[j].Name
+		})
+	}
+	detail.ContainerCount = len(detail.Containers)
+	detail.InUse = detail.ContainerCount > 0
+
+	return detail, nil
 }
 
 // ConnectNetwork 连接容器到网络

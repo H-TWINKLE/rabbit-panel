@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 
 	"rabbit-panel/model"
 	"rabbit-panel/repository"
@@ -42,6 +43,83 @@ func (s *ComposeService) ListProjects() ([]model.ComposeProject, error) {
 		})
 	}
 	return result, nil
+}
+
+// FetchProjectStatus 获取单个 Compose 项目状态
+func (s *ComposeService) FetchProjectStatus(name string) (*model.ComposeProject, error) {
+	dir := s.fileRepo.GetComposeProjectDir(name)
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose.yml", "ps", "--format", "json")
+	cmd.Dir = dir
+
+	output, err := cmd.Output()
+	if err != nil {
+		return &model.ComposeProject{
+			Name:   name,
+			Status: "unknown",
+		}, nil
+	}
+
+	project := &model.ComposeProject{
+		Name:   name,
+		Status: "stopped",
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	running := 0
+	total := 0
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		total++
+		var item struct {
+			ID      string `json:"ID"`
+			Name    string `json:"Name"`
+			Service string `json:"Service"`
+			State   string `json:"State"`
+			Status  string `json:"Status"`
+			Publishers []struct {
+				URL           string `json:"URL"`
+				TargetPort    int    `json:"TargetPort"`
+				PublishedPort int    `json:"PublishedPort"`
+				Protocol      string `json:"Protocol"`
+			} `json:"Publishers"`
+		}
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		if item.State == "running" {
+			running++
+		}
+		ports := make([]string, 0, len(item.Publishers))
+		for _, publisher := range item.Publishers {
+			if publisher.PublishedPort > 0 && publisher.TargetPort > 0 {
+				ports = append(ports, fmt.Sprintf("%d:%d", publisher.PublishedPort, publisher.TargetPort))
+			}
+		}
+		project.Containers = append(project.Containers, model.ComposeContainer{
+			ID:      item.ID,
+			Name:    item.Name,
+			Service: item.Service,
+			State:   item.State,
+			Status:  item.Status,
+			Ports:   strings.Join(ports, ", "),
+		})
+	}
+
+	switch {
+	case total == 0:
+		project.Status = "stopped"
+	case running == total:
+		project.Status = "running"
+	case running > 0:
+		project.Status = "partial"
+	default:
+		project.Status = "stopped"
+	}
+
+	return project, nil
 }
 
 // CreateProject 创建 Compose 项目

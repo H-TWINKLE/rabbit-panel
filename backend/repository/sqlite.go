@@ -33,6 +33,7 @@ type IAuthRepository interface {
 	SaveChatMessage(role, content string) error
 	GetChatHistory(limit int) ([]ChatHistoryRecord, error)
 	CleanupOldMessages(olderThan time.Duration) (int64, error)
+	ClearChatHistory() error
 }
 
 // UserRecord 用户记录
@@ -54,10 +55,10 @@ type SessionRecord struct {
 
 // ChatHistoryRecord 聊天历史记录
 type ChatHistoryRecord struct {
-	ID        int64
-	Role      string
-	Content   string
-	CreatedAt time.Time
+	ID        int64     `json:"id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // SQLiteRepository SQLite 数据库实现
@@ -314,7 +315,7 @@ func (r *SQLiteRepository) SaveChatMessage(role, content string) error {
 // GetChatHistory 获取聊天历史
 func (r *SQLiteRepository) GetChatHistory(limit int) ([]ChatHistoryRecord, error) {
 	rows, err := r.db.Query(
-		"SELECT id, role, content, created_at FROM chat_messages ORDER BY created_at DESC LIMIT ?",
+		"SELECT id, role, content, created_at FROM chat_messages ORDER BY created_at ASC LIMIT ?",
 		limit,
 	)
 	if err != nil {
@@ -341,6 +342,12 @@ func (r *SQLiteRepository) CleanupOldMessages(olderThan time.Duration) (int64, e
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// ClearChatHistory 清空聊天历史
+func (r *SQLiteRepository) ClearChatHistory() error {
+	_, err := r.db.Exec("DELETE FROM chat_messages")
+	return err
 }
 
 // DB 返回底层数据库连接（用于初始化聊天历史表等）

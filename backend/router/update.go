@@ -23,11 +23,11 @@ func (r *Router) handleUpdateRun(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 
-	if err := r.app.UpdateService.StartUpdate(ctx); err != nil {
+	if err := r.app.UpdateService.PrepareUpdate(ctx); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "update task started"})
+	c.JSON(http.StatusOK, gin.H{"message": "update package downloaded"})
 }
 
 func (r *Router) handleUpdateIgnore(c *gin.Context) {
@@ -53,6 +53,15 @@ func (r *Router) handleUpdateStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, status)
+}
+
+func (r *Router) handleUpdateApply(c *gin.Context) {
+	log.Printf("apply update requested by %s", c.GetString("username"))
+	if err := r.app.UpdateService.ApplyPreparedUpdate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "update apply started"})
 }
 
 func (r *Router) handleUpdateClearIgnore(c *gin.Context) {

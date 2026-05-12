@@ -51,7 +51,11 @@
 
       <!-- Status bar -->
       <div class="logs-status">
-        <span v-if="isConnected" class="status connected">
+        <span v-if="showAllLogs" class="status connected">
+          <el-icon><CircleCheck /></el-icon>
+          History Loaded
+        </span>
+        <span v-else-if="isConnected" class="status connected">
           <el-icon><CircleCheck /></el-icon>
           Connected
         </span>
@@ -162,12 +166,13 @@ function connectLogs() {
   logs.value = []
   isConnected.value = false
 
-  // tail=all 表示全部日志，否则默认100行 + 实时追加
-  const tail = showAllLogs.value ? 'all' : 100
-  const follow = !showAllLogs.value
+  if (showAllLogs.value) {
+    loadAllLogs()
+    return
+  }
 
   // Create SSE connection
-  eventSource = containerApi.logs(props.containerId, tail, follow)
+  eventSource = containerApi.logs(props.containerId, 100, true)
 
   eventSource.onopen = () => {
     isConnected.value = true
@@ -190,6 +195,15 @@ function connectLogs() {
     isConnected.value = false
     eventSource?.close()
     eventSource = null
+  }
+}
+
+async function loadAllLogs() {
+  try {
+    logs.value = await containerApi.logsOnce(props.containerId, 'all')
+    isConnected.value = true
+  } catch {
+    isConnected.value = false
   }
 }
 
