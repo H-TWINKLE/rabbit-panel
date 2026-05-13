@@ -308,9 +308,9 @@ onUnmounted(() => {
 
 // Local state for v-model bindings
 const searchInput = ref('')
-const statusFilterValue = ref<ContainerState>('all')
-const currentPageValue = ref(1)
-const pageSizeValue = ref(10)
+const statusFilterValue = ref<ContainerState>(containerStore.statusFilter)
+const currentPageValue = ref(containerStore.currentPage)
+const pageSizeValue = ref(containerStore.pageSize)
 
 // Dialog visibility
 const showCreateDialog = ref(false)

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	updateManifestURL         = "https://raw.githubusercontent.com/reisen7/rabbit-panel/gh-pages/latest.json"
-	updateManifestFallbackURL = "https://reisen7.github.io/rabbit-panel/latest.json"
+	updateManifestURL         = "https://reisen7.github.io/rabbit-panel/latest.json"
+	updateManifestFallbackURL = "https://raw.githubusercontent.com/reisen7/rabbit-panel/gh-pages/latest.json"
 	updateLogPath             = "/tmp/rabbit-panel-update.log"
 	updateScriptPath          = "/tmp/rabbit-panel-update.sh"
 	updateBinaryDir           = "/tmp/rabbit-panel-update"
@@ -118,10 +118,10 @@ type UpdateSettings struct {
 }
 
 type externalUpdateResult struct {
-	Status            string
-	LastUpdateTime    string
-	LastError         string
-	ClearPrepared     bool
+	Status             string
+	LastUpdateTime     string
+	LastError          string
+	ClearPrepared      bool
 	PreparedBinaryPath string
 	PreparedVersion    string
 }
@@ -396,11 +396,11 @@ func (s *UpdateService) loadSettings() (*UpdateSettings, error) {
 		return nil, err
 	}
 	return &UpdateSettings{
-		IgnoredVersion:   record.IgnoredVersion,
-		LastCheckTime:    record.LastCheckTime,
-		LastUpdateTime:   record.LastUpdateTime,
-		LastUpdateStatus: record.LastUpdateStatus,
-		LastUpdateError:  record.LastUpdateError,
+		IgnoredVersion:     record.IgnoredVersion,
+		LastCheckTime:      record.LastCheckTime,
+		LastUpdateTime:     record.LastUpdateTime,
+		LastUpdateStatus:   record.LastUpdateStatus,
+		LastUpdateError:    record.LastUpdateError,
 		PreparedBinaryPath: record.PreparedBinaryPath,
 		PreparedVersion:    record.PreparedVersion,
 	}, nil
@@ -408,11 +408,11 @@ func (s *UpdateService) loadSettings() (*UpdateSettings, error) {
 
 func (s *UpdateService) saveSettings(settings *UpdateSettings) error {
 	return s.fileRepo.SaveUpdateSettings(&repository.UpdateSettingsRecord{
-		IgnoredVersion:   settings.IgnoredVersion,
-		LastCheckTime:    settings.LastCheckTime,
-		LastUpdateTime:   settings.LastUpdateTime,
-		LastUpdateStatus: settings.LastUpdateStatus,
-		LastUpdateError:  settings.LastUpdateError,
+		IgnoredVersion:     settings.IgnoredVersion,
+		LastCheckTime:      settings.LastCheckTime,
+		LastUpdateTime:     settings.LastUpdateTime,
+		LastUpdateStatus:   settings.LastUpdateStatus,
+		LastUpdateError:    settings.LastUpdateError,
 		PreparedBinaryPath: settings.PreparedBinaryPath,
 		PreparedVersion:    settings.PreparedVersion,
 	})
@@ -560,7 +560,7 @@ func (s *UpdateService) prepareBinaryUpdate(ctx context.Context, manifest *Updat
 }
 
 func (s *UpdateService) startDockerUpdate(deploy DeployConfig) error {
-script := fmt.Sprintf(`#!/bin/sh
+	script := fmt.Sprintf(`#!/bin/sh
 set -eu
 LOG_FILE=%s
 mkdir -p "$(dirname "$LOG_FILE")"

@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { volumeApi } from '@/api/volumes'
 import type { VolumeInfo, CreateVolumeRequest, VolumePruneResult } from '@/types'
+import { getSavedPageSize, savePageSize } from '@/utils/pagination'
 
 export type SortField = 'name' | 'driver' | 'created'
 export type SortOrder = 'asc' | 'desc'
+const PAGE_SIZE_STORAGE_KEY = 'rabbit-page-size-volumes'
 
 /**
  * Volume store
@@ -25,7 +27,7 @@ export const useVolumeStore = defineStore('volumes', () => {
 
   // Pagination state
   const currentPage = ref(1)
-  const pageSize = ref(10)
+  const pageSize = ref(getSavedPageSize(PAGE_SIZE_STORAGE_KEY))
 
   // Getters
 
@@ -187,6 +189,7 @@ export const useVolumeStore = defineStore('volumes', () => {
    */
   function setPageSize(size: number): void {
     pageSize.value = size
+    savePageSize(PAGE_SIZE_STORAGE_KEY, size)
     currentPage.value = 1
   }
 

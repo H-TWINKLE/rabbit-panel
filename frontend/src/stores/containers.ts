@@ -2,10 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { containerApi } from '@/api/containers'
 import type { ContainerInfo } from '@/types'
+import { getSavedPageSize, savePageSize } from '@/utils/pagination'
 
 export type ContainerState = 'all' | 'running' | 'exited' | 'paused' | 'created'
 export type SortField = 'id' | 'name' | 'image' | 'state' | 'created'
 export type SortOrder = 'asc' | 'desc'
+const PAGE_SIZE_STORAGE_KEY = 'rabbit-page-size-containers'
 
 /**
  * Container store
@@ -28,7 +30,7 @@ export const useContainerStore = defineStore('containers', () => {
   
   // Pagination state
   const currentPage = ref(1)
-  const pageSize = ref(10)
+  const pageSize = ref(getSavedPageSize(PAGE_SIZE_STORAGE_KEY))
 
   // Getters
 
@@ -204,6 +206,7 @@ export const useContainerStore = defineStore('containers', () => {
    */
   function setPageSize(size: number): void {
     pageSize.value = size
+    savePageSize(PAGE_SIZE_STORAGE_KEY, size)
     // Reset to first page when page size changes
     currentPage.value = 1
   }

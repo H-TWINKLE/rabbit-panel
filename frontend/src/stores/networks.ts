@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { networkApi } from '@/api/networks'
 import type { NetworkInfo, NetworkDetail } from '@/types'
+import { getSavedPageSize, savePageSize } from '@/utils/pagination'
 
 export type SortField = 'id' | 'name' | 'driver' | 'scope' | 'containers'
 export type SortOrder = 'asc' | 'desc'
+const PAGE_SIZE_STORAGE_KEY = 'rabbit-page-size-networks'
 
 // System networks that cannot be deleted
 const PROTECTED_NETWORKS = ['bridge', 'host', 'none']
@@ -28,7 +30,7 @@ export const useNetworkStore = defineStore('networks', () => {
   
   // Pagination state
   const currentPage = ref(1)
-  const pageSize = ref(10)
+  const pageSize = ref(getSavedPageSize(PAGE_SIZE_STORAGE_KEY))
 
   // Getters
 
@@ -210,6 +212,7 @@ export const useNetworkStore = defineStore('networks', () => {
    */
   function setPageSize(size: number): void {
     pageSize.value = size
+    savePageSize(PAGE_SIZE_STORAGE_KEY, size)
     // Reset to first page when page size changes
     currentPage.value = 1
   }

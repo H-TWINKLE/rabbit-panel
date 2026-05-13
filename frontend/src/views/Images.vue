@@ -153,8 +153,8 @@ const imageStore = useImageStore()
 
 // Local state for v-model bindings
 const searchInput = ref('')
-const currentPageValue = ref(1)
-const pageSizeValue = ref(10)
+const currentPageValue = ref(imageStore.currentPage)
+const pageSizeValue = ref(imageStore.pageSize)
 
 // Dialog visibility
 const showBuildDialog = ref(false)

@@ -55,22 +55,6 @@ docker compose -f docker-compose.deploy.yml up -d
 curl -fsSL https://raw.githubusercontent.com/reisen7/rabbit-panel/main/install.sh | bash
 ```
 
-脚本会自动：
-
-- 识别架构并下载最新二进制
-- 校验 SHA256
-- 安装到 `/usr/local/bin/rabbit-panel`
-- 生成 `/etc/rabbit-panel.env`
-- 创建并启动 `rabbit-panel.service`
-
-常用命令：
-
-```bash
-systemctl status rabbit-panel
-systemctl restart rabbit-panel
-journalctl -u rabbit-panel -f
-```
-
 > 如果你希望使用面板内“立即更新”，二进制部署必须通过 `systemd` 管理。
 
 ## 多节点
@@ -105,27 +89,6 @@ docker compose -f docker-compose.worker.yml up -d
 - `admin / admin`
 
 首次登录后必须修改密码。
-
-## 自动发布
-
-正式发布直接打 tag：
-
-```bash
-git tag v2.1.0
-git push origin v2.1.0
-```
-
-GitHub Actions 会自动：
-
-- 构建前端
-- 构建 Linux 二进制
-- 上传 Release 和 `sha256sums.txt`
-- 推送 Docker 镜像
-- 发布 `latest.json`
-
-更新清单：
-
-`https://reisen7.github.io/rabbit-panel/latest.json`
 
 ## 更新日志
 

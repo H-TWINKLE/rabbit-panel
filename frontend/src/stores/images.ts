@@ -2,9 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { imageApi } from '@/api/images'
 import type { ImageInfo } from '@/types'
+import { getSavedPageSize, savePageSize } from '@/utils/pagination'
 
 export type SortField = 'id' | 'name' | 'tag' | 'size' | 'created'
 export type SortOrder = 'asc' | 'desc'
+const PAGE_SIZE_STORAGE_KEY = 'rabbit-page-size-images'
 
 /**
  * Image store
@@ -25,7 +27,7 @@ export const useImageStore = defineStore('images', () => {
 
   // Pagination state
   const currentPage = ref(1)
-  const pageSize = ref(10)
+  const pageSize = ref(getSavedPageSize(PAGE_SIZE_STORAGE_KEY))
 
   // Getters
 
@@ -174,6 +176,7 @@ export const useImageStore = defineStore('images', () => {
    */
   function setPageSize(size: number): void {
     pageSize.value = size
+    savePageSize(PAGE_SIZE_STORAGE_KEY, size)
     // Reset to first page when page size changes
     currentPage.value = 1
   }
